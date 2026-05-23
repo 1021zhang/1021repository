@@ -316,6 +316,78 @@ button {
   font-weight: 850;
 }
 
+.simple-page,
+.settings-page {
+  animation: fadeIn 180ms ease;
+}
+
+.simple-page {
+  padding: 26px 18px;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.simple-page h2,
+.settings-card h2 {
+  margin: 18px 0 8px;
+  font-size: 22px;
+  letter-spacing: -0.04em;
+  font-weight: 950;
+}
+
+.simple-page p,
+.settings-card p {
+  margin: 6px 0 0;
+  color: var(--gray);
+  line-height: 1.5;
+}
+
+.settings-title {
+  margin-bottom: 16px;
+}
+
+.settings-card {
+  padding: 18px;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.settings-card + .settings-card {
+  margin-top: 14px;
+}
+
+.settings-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.settings-actions button,
+.import-button {
+  width: 100%;
+  min-height: 46px;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  border: 2px solid var(--blue);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--blue-dark);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.settings-actions .danger-button {
+  border-color: #f0b9b9;
+  color: #c53a3a;
+}
+
+.import-button input {
+  display: none;
+}
+
 .no-update {
   margin-top: 20px;
   color: var(--gray);
@@ -502,6 +574,27 @@ button {
   background: #ffffff;
   color: var(--blue);
   font-size: 24px;
+}
+
+.mock-notice {
+  margin-bottom: 14px;
+  padding: 14px;
+  border-radius: 22px;
+  background: var(--blue-soft);
+  color: var(--blue-dark);
+}
+
+.mock-notice strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 15px;
+}
+
+.mock-notice p {
+  margin: 4px 0 0;
+  color: #3f7fb7;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .connect-steps {
