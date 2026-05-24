@@ -16,6 +16,7 @@ const initialPlatforms = [
     id: "youtube",
     name: "YouTube",
     syncType: "mock",
+    homepageUrl: "https://www.youtube.com",
     connected: false,
     creators: []
   },
@@ -23,6 +24,7 @@ const initialPlatforms = [
     id: "xiaohongshu",
     name: "小红书",
     syncType: "manual",
+    homepageUrl: "https://www.xiaohongshu.com",
     connected: false,
     creators: []
   },
@@ -30,6 +32,7 @@ const initialPlatforms = [
     id: "weibo",
     name: "微博",
     syncType: "manual",
+    homepageUrl: "https://weibo.com",
     connected: false,
     creators: []
   },
@@ -37,6 +40,7 @@ const initialPlatforms = [
     id: "rss",
     name: "RSS",
     syncType: "rss",
+    homepageUrl: "",
     connected: false,
     creators: []
   }
@@ -139,6 +143,8 @@ function getAllReadUpdates(platform) {
 }
 
 function normalizeUrl(url) {
+  if (!url) return "";
+
   if (url.startsWith("http://") || url.startsWith("https://")) {
     return url;
   }
@@ -202,6 +208,13 @@ function getActionText(platform) {
   return "添加 RSS";
 }
 
+function isMockOrEmptyUrl(url) {
+  if (!url) return true;
+
+  const normalizedUrl = String(url).trim().toLowerCase();
+  return normalizedUrl === "" || normalizedUrl === "#" || normalizedUrl === "about:blank";
+}
+
 export default function App() {
   const [platforms, setPlatforms] = useState(loadPlatforms);
   const [activePlatformId, setActivePlatformId] = useState(null);
@@ -250,9 +263,26 @@ export default function App() {
     updatePlatforms(nextPlatforms);
   }
 
-  function openUpdate(platformId, creator, update) {
-    window.open(update.url, "_blank", "noopener,noreferrer");
-    markUpdateAsRead(platformId, creator.id, update.id);
+  function openExternalLink({ platform, creator, update }) {
+    const hasAnyLink = Boolean(update?.url || creator?.homepageUrl || platform?.homepageUrl);
+
+    if (!hasAnyLink) {
+      alert("当前还没有可打开的真实链接");
+      return;
+    }
+
+    const finalUrl = update?.url || creator?.homepageUrl || platform?.homepageUrl;
+
+    if (isMockOrEmptyUrl(finalUrl)) {
+      alert("当前是模拟内容，暂无真实链接。你可以在详情页右上角手动添加真实链接。");
+      return;
+    }
+
+    if (update?.id && creator?.id && platform?.id) {
+      markUpdateAsRead(platform.id, creator.id, update.id);
+    }
+
+    window.location.href = normalizeUrl(finalUrl);
   }
 
   function addManualCreator(formData) {
@@ -489,7 +519,8 @@ export default function App() {
           <PlatformDetail
             platform={activePlatform}
             onBack={() => setActivePlatformId(null)}
-            onOpenUpdate={openUpdate}
+            onManualAdd={() => setManualPlatformId(activePlatform.id)}
+            onOpenUpdate={openExternalLink}
           />
         )}
 
@@ -700,16 +731,22 @@ function CreatorRow({ creator, update }) {
   );
 }
 
-function PlatformDetail({ platform, onBack, onOpenUpdate }) {
+function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate }) {
   const unreadCreators = getUnreadCreators(platform);
   const readUpdates = getAllReadUpdates(platform);
   const statusText = getStatusText({ ...platform, connected: true }, unreadCreators);
 
   return (
     <section className="detail-page">
-      <button className="back-link" type="button" onClick={onBack}>
-        ← 返回首页
-      </button>
+      <div className="detail-head">
+        <button className="back-link" type="button" onClick={onBack}>
+          ← 返回首页
+        </button>
+
+        <button className="detail-add-button" type="button" onClick={onManualAdd} aria-label={`添加${platform.name}博主`}>
+          ＋
+        </button>
+      </div>
 
       <div className="detail-title">
         <span className="blue-oval large">{platform.name}</span>
@@ -726,7 +763,7 @@ function PlatformDetail({ platform, onBack, onOpenUpdate }) {
                 <button
                   className="open-content"
                   type="button"
-                  onClick={() => onOpenUpdate(platform.id, creator, update)}
+                  onClick={() => onOpenUpdate({ platform, creator, update })}
                 >
                   打开内容 →
                 </button>
@@ -870,7 +907,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
     <div className="modal-mask">
       <form className="modal-card" onSubmit={handleSubmit}>
         <div className="modal-head">
-          <h2>{isRss ? "添加 RSS" : "手动添加博主"}</h2>
+          <h2>{isRss ? "添加 RSS 订阅源" : `添加 ${platform.name} 博主`}</h2>
 
           <button type="button" onClick={onClose}>
             ×
@@ -888,7 +925,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
         </label>
 
         <label>
-          {isRss ? "RSS 链接" : "博主主页链接"}
+          {isRss ? "RSS 链接" : platform.id === "youtube" ? "频道主页链接" : "博主主页链接"}
           <input
             name="homepageUrl"
             value={form.homepageUrl}
