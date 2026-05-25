@@ -388,7 +388,14 @@ button {
   overflow-wrap: anywhere;
 }
 
-.followed-item button {
+.followed-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.followed-actions button {
   border: 0;
   background: transparent;
   color: var(--blue-dark);
@@ -396,10 +403,15 @@ button {
   white-space: nowrap;
 }
 
-.followed-item span {
+.followed-actions span {
   color: var(--gray);
   font-size: 14px;
   white-space: nowrap;
+}
+
+.followed-actions .remove-creator-button {
+  color: #777777;
+  font-weight: 900;
 }
 
 .read-toggle {
@@ -468,8 +480,14 @@ button {
   font-weight: 850;
 }
 
-.tab span {
-  font-size: 23px;
+.tab svg {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .tab.active {
@@ -655,5 +673,10 @@ select:focus {
   .read-item,
   .followed-item {
     grid-template-columns: 1fr;
+  }
+
+  .followed-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }

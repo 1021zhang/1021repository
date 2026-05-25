@@ -78,17 +78,17 @@ function savePlatforms(platforms) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(platforms));
 }
 
-function normalizeUrl(url) {
+function normalizeExternalUrl(url) {
   if (!url) return "";
-  const trimmedUrl = url.trim();
-  if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) return trimmedUrl;
+  const trimmedUrl = String(url).trim();
+  const lowerUrl = trimmedUrl.toLowerCase();
+  if (trimmedUrl === "" || trimmedUrl === "#" || lowerUrl === "about:blank" || lowerUrl === "undefined") return "";
+  if (lowerUrl.startsWith("http://") || lowerUrl.startsWith("https://")) return trimmedUrl;
   return `https://${trimmedUrl}`;
 }
 
 function isMockOrEmptyUrl(url) {
-  if (!url) return true;
-  const normalizedUrl = String(url).trim().toLowerCase();
-  return normalizedUrl === "" || normalizedUrl === "#" || normalizedUrl === "about:blank";
+  return normalizeExternalUrl(url) === "";
 }
 
 function getCurrentTime() {
@@ -225,9 +225,9 @@ export default function App() {
   }
 
   function openExternalLink({ platform, creator, update }) {
-    const finalUrl = update?.url || creator?.homepageUrl || platform?.homepageUrl;
+    const finalUrl = normalizeExternalUrl(update?.url || creator?.homepageUrl || platform?.homepageUrl);
 
-    if (isMockOrEmptyUrl(finalUrl)) {
+    if (!finalUrl) {
       alert("当前是模拟内容，暂无真实链接。你可以手动添加真实链接。");
       return;
     }
@@ -236,28 +236,46 @@ export default function App() {
       markUpdateAsRead(platform.id, creator.id, update.id);
     }
 
-    window.location.href = normalizeUrl(finalUrl);
+    window.location.href = finalUrl;
   }
 
   function openCreatorHomepage(platform, update) {
     const creator = platform.creators.find((item) => item.name === update.creatorName);
-    const finalUrl = creator?.homepageUrl || update.url;
+    const finalUrl = normalizeExternalUrl(creator?.homepageUrl || update.url);
 
-    if (isMockOrEmptyUrl(finalUrl)) {
+    if (!finalUrl) {
       alert("当前没有可打开的主页链接");
       return;
     }
 
-    window.location.href = normalizeUrl(finalUrl);
+    window.location.href = finalUrl;
   }
 
   function openFollowedCreatorHomepage(creator) {
-    if (isMockOrEmptyUrl(creator?.homepageUrl)) {
+    const finalUrl = normalizeExternalUrl(creator?.homepageUrl);
+
+    if (!finalUrl) {
       alert("当前没有可打开的主页链接");
       return;
     }
 
-    window.location.href = normalizeUrl(creator.homepageUrl);
+    window.location.href = finalUrl;
+  }
+
+  function removeCreator(platformId, creator) {
+    if (!window.confirm(`确定不再关注「${creator.name}」吗？`)) return;
+
+    updatePlatforms(
+      platforms.map((platform) => {
+        if (platform.id !== platformId) return platform;
+
+        return {
+          ...platform,
+          connected: platform.creators.length > 1,
+          creators: platform.creators.filter((item) => item.id !== creator.id)
+        };
+      })
+    );
   }
 
   function addManualCreator(formData) {
@@ -266,7 +284,7 @@ export default function App() {
         if (platform.id !== formData.platformId) return platform;
 
         const creatorName = formData.creator.trim();
-        const homepageUrl = normalizeUrl(formData.homepageUrl);
+        const homepageUrl = normalizeExternalUrl(formData.homepageUrl);
         const updateTitle = formData.title.trim();
         const updateUrl = formData.updateUrl.trim();
         const hasUpdate = updateTitle || updateUrl;
@@ -276,7 +294,7 @@ export default function App() {
                 `${formData.platformId}-manual-update-${Date.now()}`,
                 formData.time,
                 updateTitle || `${creatorName} 最新内容`,
-                updateUrl ? normalizeUrl(updateUrl) : ""
+                updateUrl ? normalizeExternalUrl(updateUrl) : ""
               )
             ]
           : [];
@@ -316,7 +334,7 @@ export default function App() {
         if (platform.id !== "rss") return platform;
 
         const sourceName = formData.creator.trim();
-        const homepageUrl = normalizeUrl(formData.homepageUrl);
+        const homepageUrl = normalizeExternalUrl(formData.homepageUrl);
         const update = createUpdate(`rss-update-${Date.now()}`, getCurrentTime(), `${sourceName} 最新文章`, homepageUrl);
 
         return {
@@ -425,6 +443,7 @@ export default function App() {
             onOpenUpdate={openExternalLink}
             onOpenHomepage={openCreatorHomepage}
             onOpenFollowedCreator={openFollowedCreatorHomepage}
+            onRemoveCreator={removeCreator}
           />
         )}
 
@@ -442,7 +461,7 @@ export default function App() {
 
         <nav className="tab-bar">
           <button className={`tab ${activeTab === "home" ? "active" : ""}`} type="button" onClick={openHome}>
-            <span>⌂</span>
+            <TabIcon name="home" />
             首页
           </button>
           <button
@@ -453,7 +472,7 @@ export default function App() {
               setActivePlatformId(null);
             }}
           >
-            <span>⟳</span>
+            <TabIcon name="sync" />
             同步
           </button>
           <button
@@ -464,7 +483,7 @@ export default function App() {
               setActivePlatformId(null);
             }}
           >
-            <span>⚙</span>
+            <TabIcon name="settings" />
             设置
           </button>
         </nav>
@@ -563,7 +582,15 @@ function CreatorRow({ creator, update }) {
   );
 }
 
-function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHomepage, onOpenFollowedCreator }) {
+function PlatformDetail({
+  platform,
+  onBack,
+  onManualAdd,
+  onOpenUpdate,
+  onOpenHomepage,
+  onOpenFollowedCreator,
+  onRemoveCreator
+}) {
   const [showReadUpdates, setShowReadUpdates] = useState(false);
   const unreadCreators = getUnreadCreators(platform);
   const readUpdates = getReadUpdates(platform);
@@ -598,7 +625,11 @@ function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHom
       )}
 
       {platform.creators.length > 0 && (
-        <FollowedCreatorsSection creators={followedCreators} onOpenCreator={onOpenFollowedCreator} />
+        <FollowedCreatorsSection
+          creators={followedCreators}
+          onOpenCreator={onOpenFollowedCreator}
+          onRemoveCreator={(creator) => onRemoveCreator(platform.id, creator)}
+        />
       )}
 
       {readUpdates.length > 0 && (
@@ -626,7 +657,7 @@ function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHom
   );
 }
 
-function FollowedCreatorsSection({ creators, onOpenCreator }) {
+function FollowedCreatorsSection({ creators, onOpenCreator, onRemoveCreator }) {
   return (
     <section className="followed-area">
       <h3>已关注博主 {creators.length} 位</h3>
@@ -634,15 +665,50 @@ function FollowedCreatorsSection({ creators, onOpenCreator }) {
         {creators.map((creator) => (
           <div className="followed-item" key={creator.id}>
             <strong>{creator.name}</strong>
-            {isMockOrEmptyUrl(creator.homepageUrl) ? (
-              <span>暂无主页链接</span>
-            ) : (
-              <button type="button" onClick={() => onOpenCreator(creator)}>进入主页 →</button>
-            )}
+            <div className="followed-actions">
+              {isMockOrEmptyUrl(creator.homepageUrl) ? (
+                <span>暂无主页链接</span>
+              ) : (
+                <button type="button" onClick={() => onOpenCreator(creator)}>进入主页 →</button>
+              )}
+              <button className="remove-creator-button" type="button" onClick={() => onRemoveCreator(creator)}>
+                移除
+              </button>
+            </div>
           </div>
         ))}
       </div>
     </section>
+  );
+}
+
+function TabIcon({ name }) {
+  if (name === "home") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 10.5 12 4l8 6.5" />
+        <path d="M6.5 10v9h11v-9" />
+        <path d="M10 19v-5h4v5" />
+      </svg>
+    );
+  }
+
+  if (name === "sync") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20 6v5h-5" />
+        <path d="M4 18v-5h5" />
+        <path d="M18.1 9A7 7 0 0 0 6.7 6.8L4 9.4" />
+        <path d="M5.9 15A7 7 0 0 0 17.3 17.2L20 14.6" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z" />
+      <path d="M19 12a7.8 7.8 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.8-1L14.4 3h-4.8l-.3 3.1a7 7 0 0 0-1.8 1l-2.4-1-2 3.4 2 1.5a7.8 7.8 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.8 1l.3 3.1h4.8l.3-3.1a7 7 0 0 0 1.8-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z" />
+    </svg>
   );
 }
 
