@@ -144,6 +144,12 @@ function getConnectedNote(platform) {
   return "等待下一次更新";
 }
 
+function getPlatformSupplementText(platform, creatorCount) {
+  if (creatorCount > 0) return getConnectedNote(platform);
+  if (platform.id === "youtube") return "先添加频道，有更新会显示在这里";
+  return "先添加博主，有更新会显示在这里";
+}
+
 function getHomePlatforms(platforms) {
   return HOME_PLATFORM_IDS.map((platformId) => platforms.find((platform) => platform.id === platformId)).filter(Boolean);
 }
@@ -243,6 +249,15 @@ export default function App() {
     }
 
     window.location.href = normalizeUrl(finalUrl);
+  }
+
+  function openFollowedCreatorHomepage(creator) {
+    if (isMockOrEmptyUrl(creator?.homepageUrl)) {
+      alert("当前没有可打开的主页链接");
+      return;
+    }
+
+    window.location.href = normalizeUrl(creator.homepageUrl);
   }
 
   function addManualCreator(formData) {
@@ -409,6 +424,7 @@ export default function App() {
             onManualAdd={() => setManualPlatformId(activePlatform.id)}
             onOpenUpdate={openExternalLink}
             onOpenHomepage={openCreatorHomepage}
+            onOpenFollowedCreator={openFollowedCreatorHomepage}
           />
         )}
 
@@ -499,13 +515,13 @@ function PlatformCard({ platform, onConnect, onViewAll }) {
   const restCount = unreadCreators.length - previewCreators.length;
   const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
   const statusText = getStatusText(platform, unreadCreators);
+  const supplementText = getPlatformSupplementText(platform, creatorCount);
 
   return (
     <article className="platform-card">
       <div className="platform-card-head">
         <div className="platform-title">
           <span className="blue-oval">{platform.name}</span>
-          <span className="count-text">{statusText}</span>
         </div>
 
         {creatorCount === 0 ? (
@@ -514,6 +530,9 @@ function PlatformCard({ platform, onConnect, onViewAll }) {
           <button className="view-all" type="button" onClick={onViewAll}>查看全部 →</button>
         )}
       </div>
+
+      <p className="count-text platform-status">{statusText}</p>
+      <p className="platform-note">{supplementText}</p>
 
       {unreadCreators.length > 0 && (
         <div className="creator-list">
@@ -525,8 +544,6 @@ function PlatformCard({ platform, onConnect, onViewAll }) {
           )}
         </div>
       )}
-
-      {creatorCount > 0 && unreadCreators.length === 0 && <p className="platform-note">{getConnectedNote(platform)}</p>}
     </article>
   );
 }
@@ -546,10 +563,11 @@ function CreatorRow({ creator, update }) {
   );
 }
 
-function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHomepage }) {
+function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHomepage, onOpenFollowedCreator }) {
   const [showReadUpdates, setShowReadUpdates] = useState(false);
   const unreadCreators = getUnreadCreators(platform);
   const readUpdates = getReadUpdates(platform);
+  const followedCreators = platform.creators.filter((creator) => creator.selected !== false);
   const statusText = getStatusText(platform, unreadCreators);
 
   return (
@@ -579,6 +597,10 @@ function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHom
         <EmptyState />
       )}
 
+      {platform.creators.length > 0 && (
+        <FollowedCreatorsSection creators={followedCreators} onOpenCreator={onOpenFollowedCreator} />
+      )}
+
       {readUpdates.length > 0 && (
         <section className="read-area">
           <button className="read-toggle" type="button" onClick={() => setShowReadUpdates((current) => !current)}>
@@ -600,6 +622,26 @@ function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHom
           )}
         </section>
       )}
+    </section>
+  );
+}
+
+function FollowedCreatorsSection({ creators, onOpenCreator }) {
+  return (
+    <section className="followed-area">
+      <h3>已关注博主 {creators.length} 位</h3>
+      <div className="followed-list">
+        {creators.map((creator) => (
+          <div className="followed-item" key={creator.id}>
+            <strong>{creator.name}</strong>
+            {isMockOrEmptyUrl(creator.homepageUrl) ? (
+              <span>暂无主页链接</span>
+            ) : (
+              <button type="button" onClick={() => onOpenCreator(creator)}>进入主页 →</button>
+            )}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

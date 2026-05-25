@@ -165,7 +165,8 @@ button {
 }
 
 .platform-card-head {
-  margin-bottom: 16px;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .platform-title {
@@ -204,6 +205,10 @@ button {
   color: #707070;
   font-size: 15px;
   line-height: 1.35;
+}
+
+.platform-status {
+  margin: 0 0 4px;
 }
 
 .view-all,
@@ -275,6 +280,10 @@ button {
   line-height: 1.45;
 }
 
+.platform-note {
+  margin: 0 0 14px;
+}
+
 .creator-info p,
 .read-item p {
   margin: 4px 0 0;
@@ -338,6 +347,59 @@ button {
 
 .read-area {
   margin-top: 24px;
+}
+
+.followed-area {
+  margin-top: 24px;
+  padding: 18px;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.followed-area h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+}
+
+.followed-list {
+  display: grid;
+  gap: 10px;
+}
+
+.followed-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.followed-item:last-child {
+  border-bottom: 0;
+}
+
+.followed-item strong {
+  min-width: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.followed-item button {
+  border: 0;
+  background: transparent;
+  color: var(--blue-dark);
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.followed-item span {
+  color: var(--gray);
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 .read-toggle {
@@ -548,6 +610,19 @@ select:focus {
   color: #c53a3a;
 }
 
+.settings-actions button,
+.settings-actions .import-button {
+  width: 100%;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 16px;
+  line-height: 1.1;
+  text-align: center;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -577,16 +652,8 @@ select:focus {
     font-size: 44px;
   }
 
-  .platform-card-head,
-  .read-item {
+  .read-item,
+  .followed-item {
     grid-template-columns: 1fr;
-  }
-
-  .platform-card-head {
-    flex-direction: column;
-  }
-
-  .view-all {
-    align-self: flex-end;
   }
 }
