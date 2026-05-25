@@ -540,7 +540,6 @@ function HomePage({ platforms, onConnect, onReset, onViewAll }) {
       <div className="overview-head">
         <div>
           <h2>我的追更</h2>
-          <p>先添加想追的博主，有更新就会显示在这里</p>
         </div>
         <button type="button" onClick={onReset}>重置</button>
       </div>
