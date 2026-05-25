@@ -390,14 +390,16 @@ export default function App() {
             <p>关注的人，有更新了</p>
           </div>
 
-          <button
-            className="top-add-button"
-            type="button"
-            onClick={() => setShowAddChoice(true)}
-            aria-label="添加到 follow"
-          >
-            ＋
-          </button>
+          {!activePlatform && activeTab === "home" && (
+            <button
+              className="top-add-button"
+              type="button"
+              onClick={() => setShowAddChoice(true)}
+              aria-label="添加到 follow"
+            >
+              ＋
+            </button>
+          )}
         </header>
 
         {activePlatform && activeTab === "home" && (
