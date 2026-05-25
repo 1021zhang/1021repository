@@ -82,13 +82,35 @@ function normalizeExternalUrl(url) {
   if (!url) return "";
   const trimmedUrl = String(url).trim();
   const lowerUrl = trimmedUrl.toLowerCase();
-  if (trimmedUrl === "" || trimmedUrl === "#" || lowerUrl === "about:blank" || lowerUrl === "undefined") return "";
+  if (
+    trimmedUrl === "" ||
+    trimmedUrl === "#" ||
+    lowerUrl === "about:blank" ||
+    lowerUrl === "undefined" ||
+    lowerUrl === "null"
+  ) {
+    return "";
+  }
   if (lowerUrl.startsWith("http://") || lowerUrl.startsWith("https://")) return trimmedUrl;
   return `https://${trimmedUrl}`;
 }
 
 function isMockOrEmptyUrl(url) {
   return normalizeExternalUrl(url) === "";
+}
+
+function navigateExternal(finalUrl) {
+  try {
+    window.location.assign(finalUrl);
+  } catch {
+    const link = document.createElement("a");
+    link.href = finalUrl;
+    link.rel = "noreferrer";
+    link.target = "_self";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
 }
 
 function getCurrentTime() {
@@ -236,7 +258,7 @@ export default function App() {
       markUpdateAsRead(platform.id, creator.id, update.id);
     }
 
-    window.location.href = finalUrl;
+    navigateExternal(finalUrl);
   }
 
   function openCreatorHomepage(platform, update) {
@@ -248,18 +270,27 @@ export default function App() {
       return;
     }
 
-    window.location.href = finalUrl;
+    navigateExternal(finalUrl);
   }
 
-  function openFollowedCreatorHomepage(creator) {
+  function openFollowedCreatorHomepage(platform, creator) {
     const finalUrl = normalizeExternalUrl(creator?.homepageUrl);
+
+    if (import.meta.env.DEV) {
+      console.log("follow external homepage", {
+        platformName: platform?.name,
+        creatorName: creator?.name,
+        homepageUrl: creator?.homepageUrl,
+        normalizedUrl: finalUrl
+      });
+    }
 
     if (!finalUrl) {
       alert("当前没有可打开的主页链接");
       return;
     }
 
-    window.location.href = finalUrl;
+    navigateExternal(finalUrl);
   }
 
   function removeCreator(platformId, creator) {
@@ -627,7 +658,7 @@ function PlatformDetail({
       {platform.creators.length > 0 && (
         <FollowedCreatorsSection
           creators={followedCreators}
-          onOpenCreator={onOpenFollowedCreator}
+          onOpenCreator={(creator) => onOpenFollowedCreator(platform, creator)}
           onRemoveCreator={(creator) => onRemoveCreator(platform.id, creator)}
         />
       )}
