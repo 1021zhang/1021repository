@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 const STORAGE_KEY = "follow_blue_oval_app_v1";
+const HOME_PLATFORM_IDS = ["youtube", "xiaohongshu", "weibo", "instagram"];
 
 const youtubeMockCreators = [
   "Peter McKinnon",
@@ -12,38 +13,11 @@ const youtubeMockCreators = [
 ];
 
 const initialPlatforms = [
-  {
-    id: "youtube",
-    name: "YouTube",
-    syncType: "mock",
-    homepageUrl: "https://www.youtube.com",
-    connected: false,
-    creators: []
-  },
-  {
-    id: "xiaohongshu",
-    name: "小红书",
-    syncType: "manual",
-    homepageUrl: "https://www.xiaohongshu.com",
-    connected: false,
-    creators: []
-  },
-  {
-    id: "weibo",
-    name: "微博",
-    syncType: "manual",
-    homepageUrl: "https://weibo.com",
-    connected: false,
-    creators: []
-  },
-  {
-    id: "rss",
-    name: "RSS",
-    syncType: "rss",
-    homepageUrl: "",
-    connected: false,
-    creators: []
-  }
+  { id: "youtube", name: "YouTube", syncType: "mock", homepageUrl: "https://www.youtube.com", connected: false, creators: [] },
+  { id: "xiaohongshu", name: "小红书", syncType: "manual", homepageUrl: "https://www.xiaohongshu.com", connected: false, creators: [] },
+  { id: "weibo", name: "微博", syncType: "manual", homepageUrl: "https://weibo.com", connected: false, creators: [] },
+  { id: "instagram", name: "Instagram", syncType: "manual", homepageUrl: "https://www.instagram.com", connected: false, creators: [] },
+  { id: "rss", name: "RSS", syncType: "rss", homepageUrl: "", connected: false, creators: [] }
 ];
 
 function createCreator(platformId, name, homepageUrl, sourceId, updates = []) {
@@ -59,22 +33,7 @@ function createCreator(platformId, name, homepageUrl, sourceId, updates = []) {
 }
 
 function createUpdate(id, time, title, url, read = false) {
-  return {
-    id,
-    title,
-    url,
-    time,
-    read
-  };
-}
-
-function loadPlatforms() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? normalizePlatforms(JSON.parse(saved)) : initialPlatforms;
-  } catch {
-    return initialPlatforms;
-  }
+  return { id, title, url, time, read };
 }
 
 function normalizePlatforms(platforms) {
@@ -102,9 +61,7 @@ function normalizeCreators(platform) {
     }));
   }
 
-  if (!Array.isArray(platform.updates)) {
-    return [];
-  }
+  if (!Array.isArray(platform.updates)) return [];
 
   return platform.updates.map((update) =>
     createCreator(
@@ -117,51 +74,39 @@ function normalizeCreators(platform) {
   );
 }
 
+function loadPlatforms() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? normalizePlatforms(JSON.parse(saved)) : initialPlatforms;
+  } catch {
+    return initialPlatforms;
+  }
+}
+
 function savePlatforms(platforms) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(platforms));
 }
 
-function getUnreadCreators(platform) {
-  return platform.creators
-    .filter((creator) => creator.selected !== false)
-    .map((creator) => ({
-      ...creator,
-      unreadUpdates: creator.updates.filter((update) => !update.read)
-    }))
-    .filter((creator) => creator.unreadUpdates.length > 0);
-}
-
-function getAllReadUpdates(platform) {
-  return platform.creators.flatMap((creator) =>
-    creator.updates
-      .filter((update) => update.read)
-      .map((update) => ({
-        ...update,
-        creatorName: creator.name
-      }))
-  );
-}
-
 function normalizeUrl(url) {
   if (!url) return "";
+  const trimmedUrl = url.trim();
+  if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) return trimmedUrl;
+  return `https://${trimmedUrl}`;
+}
 
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-
-  return `https://${url}`;
+function isMockOrEmptyUrl(url) {
+  if (!url) return true;
+  const normalizedUrl = String(url).trim().toLowerCase();
+  return normalizedUrl === "" || normalizedUrl === "#" || normalizedUrl === "about:blank";
 }
 
 function getCurrentTime() {
   const now = new Date();
-  const hour = String(now.getHours()).padStart(2, "0");
-  const minute = String(now.getMinutes()).padStart(2, "0");
-  return `${hour}:${minute}`;
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
 function getYoutubeHomepage(name) {
-  const slug = name.toLowerCase().replaceAll(" ", "");
-  return `https://www.youtube.com/@${slug}`;
+  return `https://www.youtube.com/@${name.toLowerCase().replaceAll(" ", "")}`;
 }
 
 function getMockUpdateTitle(name) {
@@ -177,14 +122,30 @@ function getMockUpdateTitle(name) {
   return titles[name] || `${name} 发布了新内容`;
 }
 
-function getStatusText(platform, unreadCreators) {
-  const isConnected = platform.connected || platform.creators.length > 0;
+function getUnreadCreators(platform) {
+  return platform.creators
+    .filter((creator) => creator.selected !== false)
+    .map((creator) => ({
+      ...creator,
+      unreadUpdates: creator.updates.filter((update) => !update.read)
+    }))
+    .filter((creator) => creator.unreadUpdates.length > 0);
+}
 
-  if (!isConnected) {
-    if (platform.id === "youtube") return "可自动同步";
-    if (platform.id === "rss") return "添加订阅源";
-    if (platform.id === "weibo") return "手动添加链接 / 后续尝试关联";
-    return "手动添加链接";
+function getReadUpdates(platform) {
+  return platform.creators.flatMap((creator) =>
+    creator.updates
+      .filter((update) => update.read)
+      .map((update) => ({ ...update, creatorName: creator.name }))
+  );
+}
+
+function getStatusText(platform, unreadCreators) {
+  const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
+
+  if (creatorCount === 0) {
+    if (platform.id === "youtube") return "可同步订阅频道";
+    return "还没添加博主";
   }
 
   if (unreadCreators.length > 0) {
@@ -192,27 +153,38 @@ function getStatusText(platform, unreadCreators) {
     return `${unreadCreators.length} 位博主更新`;
   }
 
-  return "暂无新更新";
-}
-
-function getConnectedNote(platform) {
-  if (platform.id === "rss") return "已添加订阅源，等待下一次同步";
-  if (platform.id === "youtube") return "已关联，等待下一次模拟同步";
-  return "已添加博主，暂无新更新";
+  if (platform.id === "rss") return `已添加 ${creatorCount} 个订阅源，暂无新更新`;
+  return `已添加 ${creatorCount} 位博主，暂无新更新`;
 }
 
 function getActionText(platform) {
   if (platform.id === "youtube") return "关联 YouTube";
   if (platform.id === "xiaohongshu") return "添加小红书博主";
   if (platform.id === "weibo") return "添加微博博主";
+  if (platform.id === "instagram") return "添加 Instagram 博主";
   return "添加 RSS";
 }
 
-function isMockOrEmptyUrl(url) {
-  if (!url) return true;
+function getConnectedNote(platform) {
+  if (platform.id === "rss") return "等待下一次同步";
+  return "等待下一次更新";
+}
 
-  const normalizedUrl = String(url).trim().toLowerCase();
-  return normalizedUrl === "" || normalizedUrl === "#" || normalizedUrl === "about:blank";
+function getHomePlatforms(platforms) {
+  return HOME_PLATFORM_IDS.map((platformId) => platforms.find((platform) => platform.id === platformId)).filter(Boolean);
+}
+
+function getManualModalTitle(platform) {
+  if (platform.id === "rss") return "添加 RSS 订阅源";
+  if (platform.id === "youtube") return "添加 YouTube 频道";
+  return `添加 ${platform.name} 博主`;
+}
+
+function getHomepageLabel(platform) {
+  if (platform.id === "rss") return "RSS 链接";
+  if (platform.id === "youtube") return "频道主页链接";
+  if (platform.id === "instagram") return "Instagram 主页链接";
+  return "主页链接";
 }
 
 export default function App() {
@@ -220,11 +192,12 @@ export default function App() {
   const [activePlatformId, setActivePlatformId] = useState(null);
   const [manualPlatformId, setManualPlatformId] = useState(null);
   const [connectPlatformId, setConnectPlatformId] = useState(null);
+  const [showAddChoice, setShowAddChoice] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
 
   const activePlatform = platforms.find((platform) => platform.id === activePlatformId);
-  const connectPlatform = platforms.find((platform) => platform.id === connectPlatformId);
   const manualPlatform = platforms.find((platform) => platform.id === manualPlatformId);
+  const connectPlatform = platforms.find((platform) => platform.id === connectPlatformId);
 
   function updatePlatforms(nextPlatforms) {
     const normalizedPlatforms = normalizePlatforms(nextPlatforms);
@@ -235,46 +208,36 @@ export default function App() {
   function openHome() {
     setActiveTab("home");
     setActivePlatformId(null);
+    setShowAddChoice(false);
   }
 
   function markUpdateAsRead(platformId, creatorId, updateId) {
-    const nextPlatforms = platforms.map((platform) => {
-      if (platform.id !== platformId) return platform;
+    updatePlatforms(
+      platforms.map((platform) => {
+        if (platform.id !== platformId) return platform;
 
-      return {
-        ...platform,
-        creators: platform.creators.map((creator) => {
-          if (creator.id !== creatorId) return creator;
+        return {
+          ...platform,
+          creators: platform.creators.map((creator) => {
+            if (creator.id !== creatorId) return creator;
 
-          return {
-            ...creator,
-            updates: creator.updates.map((update) => {
-              if (update.id !== updateId) return update;
-              return {
-                ...update,
-                read: true
-              };
-            })
-          };
-        })
-      };
-    });
-
-    updatePlatforms(nextPlatforms);
+            return {
+              ...creator,
+              updates: creator.updates.map((update) =>
+                update.id === updateId ? { ...update, read: true } : update
+              )
+            };
+          })
+        };
+      })
+    );
   }
 
   function openExternalLink({ platform, creator, update }) {
-    const hasAnyLink = Boolean(update?.url || creator?.homepageUrl || platform?.homepageUrl);
-
-    if (!hasAnyLink) {
-      alert("当前还没有可打开的真实链接");
-      return;
-    }
-
     const finalUrl = update?.url || creator?.homepageUrl || platform?.homepageUrl;
 
     if (isMockOrEmptyUrl(finalUrl)) {
-      alert("当前是模拟内容，暂无真实链接。你可以在详情页右上角手动添加真实链接。");
+      alert("当前是模拟内容，暂无真实链接。你可以手动添加真实链接。");
       return;
     }
 
@@ -285,134 +248,117 @@ export default function App() {
     window.location.href = normalizeUrl(finalUrl);
   }
 
+  function openCreatorHomepage(platform, update) {
+    const creator = platform.creators.find((item) => item.name === update.creatorName);
+    const finalUrl = creator?.homepageUrl || update.url;
+
+    if (isMockOrEmptyUrl(finalUrl)) {
+      alert("当前没有可打开的主页链接");
+      return;
+    }
+
+    window.location.href = normalizeUrl(finalUrl);
+  }
+
   function addManualCreator(formData) {
-    const nextPlatforms = platforms.map((platform) => {
-      if (platform.id !== formData.platformId) return platform;
+    updatePlatforms(
+      platforms.map((platform) => {
+        if (platform.id !== formData.platformId) return platform;
 
-      const creatorName = formData.creator.trim();
-      const homepageUrl = normalizeUrl(formData.homepageUrl.trim());
-      const hasUpdate = formData.title.trim() && formData.updateUrl.trim();
-      const updates = hasUpdate
-        ? [
-            createUpdate(
-              `${formData.platformId}-manual-update-${Date.now()}`,
-              formData.time,
-              formData.title.trim(),
-              normalizeUrl(formData.updateUrl.trim())
+        const creatorName = formData.creator.trim();
+        const homepageUrl = normalizeUrl(formData.homepageUrl);
+        const hasUpdate = formData.title.trim() && formData.updateUrl.trim();
+        const updates = hasUpdate
+          ? [
+              createUpdate(
+                `${formData.platformId}-manual-update-${Date.now()}`,
+                formData.time,
+                formData.title.trim(),
+                normalizeUrl(formData.updateUrl)
+              )
+            ]
+          : [];
+        const existingCreator = platform.creators.find(
+          (creator) => creator.homepageUrl === homepageUrl || creator.name === creatorName
+        );
+
+        if (existingCreator) {
+          return {
+            ...platform,
+            connected: true,
+            creators: platform.creators.map((creator) =>
+              creator.id === existingCreator.id
+                ? { ...creator, selected: true, homepageUrl, updates: [...updates, ...creator.updates] }
+                : creator
             )
-          ]
-        : [];
-      const existingCreator = platform.creators.find(
-        (creator) => creator.homepageUrl === homepageUrl || creator.name === creatorName
-      );
+          };
+        }
 
-      if (existingCreator) {
         return {
           ...platform,
           connected: true,
-          creators: platform.creators.map((creator) => {
-            if (creator.id !== existingCreator.id) return creator;
-
-            return {
-              ...creator,
-              selected: true,
-              homepageUrl,
-              updates: [...updates, ...creator.updates]
-            };
-          })
+          creators: [
+            createCreator(formData.platformId, creatorName, homepageUrl, `manual-${Date.now()}`, updates),
+            ...platform.creators
+          ]
         };
-      }
+      })
+    );
 
-      return {
-        ...platform,
-        connected: true,
-        creators: [
-          createCreator(formData.platformId, creatorName, homepageUrl, `manual-${homepageUrl}`, updates),
-          ...platform.creators
-        ]
-      };
-    });
-
-    updatePlatforms(nextPlatforms);
     setManualPlatformId(null);
   }
 
   function addRssSource(formData) {
-    const nextPlatforms = platforms.map((platform) => {
-      if (platform.id !== "rss") return platform;
+    updatePlatforms(
+      platforms.map((platform) => {
+        if (platform.id !== "rss") return platform;
 
-      const sourceName = formData.creator.trim();
-      const homepageUrl = normalizeUrl(formData.homepageUrl.trim());
-      const update = createUpdate(
-        `rss-update-${Date.now()}`,
-        getCurrentTime(),
-        `${sourceName} 最新文章`,
-        homepageUrl
-      );
+        const sourceName = formData.creator.trim();
+        const homepageUrl = normalizeUrl(formData.homepageUrl);
+        const update = createUpdate(`rss-update-${Date.now()}`, getCurrentTime(), `${sourceName} 最新文章`, homepageUrl);
 
-      return {
-        ...platform,
-        connected: true,
-        creators: [
-          createCreator("rss", sourceName, homepageUrl, `rss-${homepageUrl}`, [update]),
-          ...platform.creators
-        ]
-      };
-    });
+        return {
+          ...platform,
+          connected: true,
+          creators: [
+            createCreator("rss", sourceName, homepageUrl, `rss-${Date.now()}`, [update]),
+            ...platform.creators
+          ]
+        };
+      })
+    );
 
-    updatePlatforms(nextPlatforms);
     setManualPlatformId(null);
   }
 
   function addSyncedCreators(platformId, names) {
-    const nextPlatforms = platforms.map((platform) => {
-      if (platform.id !== platformId) return platform;
+    updatePlatforms(
+      platforms.map((platform) => {
+        if (platform.id !== platformId) return platform;
 
-      const existingNames = new Set(platform.creators.map((creator) => creator.name));
-      const selectedCreators = names.map((name, index) => {
-        const sourceId = `youtube-source-${index + 1}`;
-        const homepageUrl = getYoutubeHomepage(name);
+        const existingNames = new Set(platform.creators.map((creator) => creator.name));
+        const selectedCreators = names.map((name, index) =>
+          createCreator("youtube", name, getYoutubeHomepage(name), `youtube-source-${index + 1}`, [
+            createUpdate(
+              `youtube-source-${index + 1}-update-${Date.now()}`,
+              getCurrentTime(),
+              getMockUpdateTitle(name),
+              getYoutubeHomepage(name)
+            )
+          ])
+        );
 
-        return createCreator("youtube", name, homepageUrl, sourceId, [
-          createUpdate(
-            `${sourceId}-update-${Date.now()}`,
-            getCurrentTime(),
-            getMockUpdateTitle(name),
-            homepageUrl
-          )
-        ]);
-      });
+        return {
+          ...platform,
+          connected: true,
+          creators: [
+            ...selectedCreators.filter((creator) => !existingNames.has(creator.name)),
+            ...platform.creators
+          ]
+        };
+      })
+    );
 
-      return {
-        ...platform,
-        connected: true,
-        creators: [
-          ...selectedCreators.filter((creator) => !existingNames.has(creator.name)),
-          ...platform.creators.map((creator) => {
-            if (!names.includes(creator.name)) return creator;
-
-            const hasUnreadUpdate = creator.updates.some((update) => !update.read);
-            return {
-              ...creator,
-              selected: true,
-              updates: hasUnreadUpdate
-                ? creator.updates
-                : [
-                    createUpdate(
-                      `${creator.sourceId}-update-${Date.now()}`,
-                      getCurrentTime(),
-                      getMockUpdateTitle(creator.name),
-                      creator.homepageUrl
-                    ),
-                    ...creator.updates
-                  ]
-            };
-          })
-        ]
-      };
-    });
-
-    updatePlatforms(nextPlatforms);
     setConnectPlatformId(null);
   }
 
@@ -421,31 +367,31 @@ export default function App() {
     setActivePlatformId(null);
     setManualPlatformId(null);
     setConnectPlatformId(null);
+    setShowAddChoice(false);
     setActiveTab("home");
   }
 
   function openPlatformAction(platform) {
     if (platform.id === "youtube") {
-      setConnectPlatformId(platform.id);
+      setConnectPlatformId("youtube");
       return;
     }
 
     setManualPlatformId(platform.id);
   }
 
+  function openAddChoice(platformId) {
+    setShowAddChoice(false);
+    setManualPlatformId(platformId);
+  }
+
   function exportData() {
-    const payload = {
-      app: "follow",
-      version: "0.1",
-      exportedAt: new Date().toISOString(),
-      platforms
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json"
-    });
+    const blob = new Blob(
+      [JSON.stringify({ app: "follow", version: "0.1", exportedAt: new Date().toISOString(), platforms }, null, 2)],
+      { type: "application/json" }
+    );
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-
     link.href = url;
     link.download = "follow-backup.json";
     link.click();
@@ -466,14 +412,9 @@ export default function App() {
       try {
         const parsed = JSON.parse(String(reader.result));
         const importedPlatforms = Array.isArray(parsed) ? parsed : parsed.platforms;
-
-        if (!Array.isArray(importedPlatforms)) {
-          throw new Error("Invalid backup");
-        }
-
+        if (!Array.isArray(importedPlatforms)) throw new Error("Invalid backup");
         updatePlatforms(importedPlatforms);
-        setActiveTab("home");
-        setActivePlatformId(null);
+        openHome();
       } catch {
         alert("导入失败，请确认文件是 follow 导出的 JSON 数据");
       } finally {
@@ -484,16 +425,10 @@ export default function App() {
   }
 
   function clearData() {
-    if (!window.confirm("确定清空 follow 数据并恢复初始状态吗？")) {
-      return;
-    }
-
+    if (!window.confirm("确定清空 follow 数据并恢复初始状态吗？")) return;
     localStorage.removeItem(STORAGE_KEY);
     setPlatforms(initialPlatforms);
-    setActiveTab("home");
-    setActivePlatformId(null);
-    setManualPlatformId(null);
-    setConnectPlatformId(null);
+    openHome();
   }
 
   return (
@@ -502,16 +437,16 @@ export default function App() {
         <header className="app-header">
           <div>
             <h1 className="brand-word">follow</h1>
-            <p>先关联平台，再选择要追更的博主</p>
+            <p>关注的人，有更新了</p>
           </div>
 
           <button
-            className="add-heart"
+            className="top-add-button"
             type="button"
-            onClick={() => setManualPlatformId("rss")}
-            aria-label="添加 RSS"
+            onClick={() => setShowAddChoice(true)}
+            aria-label="添加到 follow"
           >
-            ♡
+            ＋
           </button>
         </header>
 
@@ -521,6 +456,7 @@ export default function App() {
             onBack={() => setActivePlatformId(null)}
             onManualAdd={() => setManualPlatformId(activePlatform.id)}
             onOpenUpdate={openExternalLink}
+            onOpenHomepage={openCreatorHomepage}
           />
         )}
 
@@ -534,21 +470,13 @@ export default function App() {
         )}
 
         {activeTab === "sync" && <SyncPage />}
-
-        {activeTab === "settings" && (
-          <SettingsPage onExport={exportData} onImport={importData} onClear={clearData} />
-        )}
+        {activeTab === "settings" && <SettingsPage onExport={exportData} onImport={importData} onClear={clearData} />}
 
         <nav className="tab-bar">
-          <button
-            className={`tab ${activeTab === "home" ? "active" : ""}`}
-            type="button"
-            onClick={openHome}
-          >
+          <button className={`tab ${activeTab === "home" ? "active" : ""}`} type="button" onClick={openHome}>
             <span>⌂</span>
             首页
           </button>
-
           <button
             className={`tab ${activeTab === "sync" ? "active" : ""}`}
             type="button"
@@ -560,7 +488,6 @@ export default function App() {
             <span>⟳</span>
             同步
           </button>
-
           <button
             className={`tab ${activeTab === "settings" ? "active" : ""}`}
             type="button"
@@ -582,34 +509,27 @@ export default function App() {
           onAdd={manualPlatform.id === "rss" ? addRssSource : addManualCreator}
         />
       )}
-
-      {connectPlatform && (
-        <ConnectPlatformModal
-          platform={connectPlatform}
-          onClose={() => setConnectPlatformId(null)}
-          onAdd={addSyncedCreators}
-        />
-      )}
+      {connectPlatform && <ConnectPlatformModal platform={connectPlatform} onClose={() => setConnectPlatformId(null)} onAdd={addSyncedCreators} />}
+      {showAddChoice && <AddChoiceModal onClose={() => setShowAddChoice(false)} onChoose={openAddChoice} />}
     </main>
   );
 }
 
 function HomePage({ platforms, onConnect, onReset, onViewAll }) {
+  const homePlatforms = getHomePlatforms(platforms);
+
   return (
     <section className="overview">
       <div className="overview-head">
         <div>
-          <h2>自动同步来源</h2>
-          <p>先关联平台，再选择要追更的博主</p>
+          <h2>我的追更</h2>
+          <p>先添加想追的博主，有更新就会显示在这里</p>
         </div>
-
-        <button type="button" onClick={onReset}>
-          重置
-        </button>
+        <button type="button" onClick={onReset}>重置</button>
       </div>
 
       <div className="platform-list">
-        {platforms.map((platform) => (
+        {homePlatforms.map((platform) => (
           <PlatformCard
             key={platform.id}
             platform={platform}
@@ -622,59 +542,12 @@ function HomePage({ platforms, onConnect, onReset, onViewAll }) {
   );
 }
 
-function SyncPage() {
-  return (
-    <section className="simple-page">
-      <span className="blue-oval">同步</span>
-      <h2>同步中心开发中</h2>
-      <p>这里后续会集中显示账号连接状态、同步记录和手动刷新入口。</p>
-    </section>
-  );
-}
-
-function SettingsPage({ onExport, onImport, onClear }) {
-  return (
-    <section className="settings-page">
-      <div className="settings-title">
-        <span className="blue-oval">设置</span>
-      </div>
-
-      <section className="settings-card">
-        <h2>数据管理</h2>
-
-        <div className="settings-actions">
-          <button type="button" onClick={onExport}>
-            导出数据
-          </button>
-
-          <label className="import-button">
-            导入数据
-            <input type="file" accept="application/json,.json" onChange={onImport} />
-          </label>
-
-          <button className="danger-button" type="button" onClick={onClear}>
-            清空数据
-          </button>
-        </div>
-      </section>
-
-      <section className="settings-card">
-        <h2>关于</h2>
-        <p>follow v0.1</p>
-        <p>个人追更小工具</p>
-        <p>当前版本为 PWA 原型</p>
-      </section>
-    </section>
-  );
-}
-
 function PlatformCard({ platform, onConnect, onViewAll }) {
   const unreadCreators = getUnreadCreators(platform);
   const previewCreators = unreadCreators.slice(0, 2);
   const restCount = unreadCreators.length - previewCreators.length;
-  const hasUnread = unreadCreators.length > 0;
-  const isConnected = platform.connected || platform.creators.length > 0;
-  const statusText = getStatusText({ ...platform, connected: isConnected }, unreadCreators);
+  const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
+  const statusText = getStatusText(platform, unreadCreators);
 
   return (
     <article className="platform-card">
@@ -684,32 +557,25 @@ function PlatformCard({ platform, onConnect, onViewAll }) {
           <span className="count-text">{statusText}</span>
         </div>
 
-        {!isConnected ? (
-          <button className="view-all" type="button" onClick={onConnect}>
-            {getActionText(platform)}
-          </button>
+        {creatorCount === 0 ? (
+          <button className="view-all" type="button" onClick={onConnect}>{getActionText(platform)}</button>
         ) : (
-          <button className="view-all" type="button" onClick={onViewAll}>
-            查看全部 →
-          </button>
+          <button className="view-all" type="button" onClick={onViewAll}>查看全部 →</button>
         )}
       </div>
 
-      {isConnected && hasUnread && (
+      {unreadCreators.length > 0 && (
         <div className="creator-list">
           {previewCreators.map((creator) => (
             <CreatorRow key={creator.id} creator={creator} update={creator.unreadUpdates[0]} />
           ))}
-
           {restCount > 0 && (
-            <button className="more-line" type="button" onClick={onViewAll}>
-              还有 {restCount} {platform.id === "rss" ? "个订阅源" : "位"}更新⌄
-            </button>
+            <button className="more-line" type="button" onClick={onViewAll}>还有 {restCount} 位更新⌄</button>
           )}
         </div>
       )}
 
-      {isConnected && !hasUnread && <p className="platform-note">{getConnectedNote(platform)}</p>}
+      {creatorCount > 0 && unreadCreators.length === 0 && <p className="platform-note">{getConnectedNote(platform)}</p>}
     </article>
   );
 }
@@ -718,34 +584,28 @@ function CreatorRow({ creator, update }) {
   return (
     <div className="creator-row">
       <Avatar text={creator.avatar} />
-
       <div className="creator-info">
         <div>
           <strong>{creator.name}</strong>
           <span>{update.time} 更新</span>
         </div>
-
         <p>{update.title}</p>
       </div>
     </div>
   );
 }
 
-function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate }) {
+function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHomepage }) {
+  const [showReadUpdates, setShowReadUpdates] = useState(false);
   const unreadCreators = getUnreadCreators(platform);
-  const readUpdates = getAllReadUpdates(platform);
-  const statusText = getStatusText({ ...platform, connected: true }, unreadCreators);
+  const readUpdates = getReadUpdates(platform);
+  const statusText = getStatusText(platform, unreadCreators);
 
   return (
     <section className="detail-page">
       <div className="detail-head">
-        <button className="back-link" type="button" onClick={onBack}>
-          ← 返回首页
-        </button>
-
-        <button className="detail-add-button" type="button" onClick={onManualAdd} aria-label={`添加${platform.name}博主`}>
-          ＋
-        </button>
+        <button className="back-link" type="button" onClick={onBack}>← 返回首页</button>
+        <button className="detail-add-button" type="button" onClick={onManualAdd} aria-label={`添加${platform.name}`}>＋</button>
       </div>
 
       <div className="detail-title">
@@ -759,14 +619,7 @@ function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate }) {
             creator.unreadUpdates.map((update) => (
               <article className="detail-card" key={`${creator.id}-${update.id}`}>
                 <CreatorRow creator={creator} update={update} />
-
-                <button
-                  className="open-content"
-                  type="button"
-                  onClick={() => onOpenUpdate({ platform, creator, update })}
-                >
-                  打开内容 →
-                </button>
+                <button className="open-content" type="button" onClick={() => onOpenUpdate({ platform, creator, update })}>打开内容 →</button>
               </article>
             ))
           )}
@@ -777,14 +630,23 @@ function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate }) {
 
       {readUpdates.length > 0 && (
         <section className="read-area">
-          <span className="gray-oval">已读更新</span>
+          <button className="read-toggle" type="button" onClick={() => setShowReadUpdates((current) => !current)}>
+            已读更新 {readUpdates.length} 条 {showReadUpdates ? "∧" : "∨"}
+          </button>
 
-          {readUpdates.map((update) => (
-            <div className="read-item" key={update.id}>
-              <strong>{update.creatorName}</strong>
-              <p>{update.title}</p>
+          {showReadUpdates && (
+            <div className="read-list">
+              {readUpdates.map((update) => (
+                <div className="read-item" key={`${update.creatorName}-${update.id}`}>
+                  <div>
+                    <strong>{update.creatorName}</strong>
+                    <p>{update.title}</p>
+                  </div>
+                  <button type="button" onClick={() => onOpenHomepage(platform, update)}>进入主页 →</button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </section>
       )}
     </section>
@@ -795,23 +657,15 @@ function ConnectPlatformModal({ platform, onClose, onAdd }) {
   const [selectedNames, setSelectedNames] = useState(youtubeMockCreators.slice(0, 3));
 
   function toggleCreator(name) {
-    setSelectedNames((current) => {
-      if (current.includes(name)) {
-        return current.filter((item) => item !== name);
-      }
-
-      return [...current, name];
-    });
+    setSelectedNames((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
   }
 
   function handleSubmit(event) {
     event.preventDefault();
-
     if (selectedNames.length === 0) {
       alert("至少选择一个频道加入 follow");
       return;
     }
-
     onAdd(platform.id, selectedNames);
   }
 
@@ -820,10 +674,7 @@ function ConnectPlatformModal({ platform, onClose, onAdd }) {
       <form className="modal-card" onSubmit={handleSubmit}>
         <div className="modal-head">
           <h2>关联 {platform.name}</h2>
-
-          <button type="button" onClick={onClose}>
-            ×
-          </button>
+          <button type="button" onClick={onClose}>×</button>
         </div>
 
         <div className="mock-notice">
@@ -841,21 +692,41 @@ function ConnectPlatformModal({ platform, onClose, onAdd }) {
         <div className="channel-list">
           {youtubeMockCreators.map((name, index) => (
             <label className="channel-row" key={name}>
-              <input
-                type="checkbox"
-                checked={selectedNames.includes(name)}
-                onChange={() => toggleCreator(name)}
-              />
+              <input type="checkbox" checked={selectedNames.includes(name)} onChange={() => toggleCreator(name)} />
               <span>{name}</span>
               <small>{index < 3 ? "默认加入" : "可选"}</small>
             </label>
           ))}
         </div>
 
-        <button className="submit-button" type="submit">
-          加入 follow
-        </button>
+        <button className="submit-button" type="submit">加入 follow</button>
       </form>
+    </div>
+  );
+}
+
+function AddChoiceModal({ onClose, onChoose }) {
+  const options = [
+    { id: "youtube", label: "添加 YouTube 频道" },
+    { id: "xiaohongshu", label: "添加小红书博主" },
+    { id: "weibo", label: "添加微博博主" },
+    { id: "instagram", label: "添加 Instagram 博主" },
+    { id: "rss", label: "高级：添加 RSS 订阅源" }
+  ];
+
+  return (
+    <div className="modal-mask">
+      <section className="modal-card">
+        <div className="modal-head">
+          <h2>添加到 follow</h2>
+          <button type="button" onClick={onClose}>×</button>
+        </div>
+        <div className="add-choice-list">
+          {options.map((option) => (
+            <button key={option.id} type="button" onClick={() => onChoose(option.id)}>{option.label}</button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -873,18 +744,13 @@ function ManualAddModal({ platform, onClose, onAdd }) {
 
   function handleChange(event) {
     const { name, value } = event.target;
-
-    setForm((current) => ({
-      ...current,
-      [name]: value
-    }));
+    setForm((current) => ({ ...current, [name]: value }));
   }
 
   function handleSubmit(event) {
     event.preventDefault();
-
     if (!form.creator.trim() || !form.homepageUrl.trim()) {
-      alert(isRss ? "请填写订阅源名称和 RSS 链接" : "请填写博主名和博主主页链接");
+      alert(isRss ? "请填写订阅源名称和 RSS 链接" : "请填写博主名和主页链接");
       return;
     }
 
@@ -907,72 +773,72 @@ function ManualAddModal({ platform, onClose, onAdd }) {
     <div className="modal-mask">
       <form className="modal-card" onSubmit={handleSubmit}>
         <div className="modal-head">
-          <h2>{isRss ? "添加 RSS 订阅源" : `添加 ${platform.name} 博主`}</h2>
-
-          <button type="button" onClick={onClose}>
-            ×
-          </button>
+          <h2>{getManualModalTitle(platform)}</h2>
+          <button type="button" onClick={onClose}>×</button>
         </div>
 
         <label>
           {isRss ? "订阅源名称" : "博主名"}
-          <input
-            name="creator"
-            value={form.creator}
-            onChange={handleChange}
-            placeholder={isRss ? "例如：Design Feed" : "例如：瑞英"}
-          />
+          <input name="creator" value={form.creator} onChange={handleChange} placeholder={isRss ? "例如：Design Feed" : "例如：瑞英"} />
         </label>
 
         <label>
-          {isRss ? "RSS 链接" : platform.id === "youtube" ? "频道主页链接" : "博主主页链接"}
-          <input
-            name="homepageUrl"
-            value={form.homepageUrl}
-            onChange={handleChange}
-            placeholder="https://..."
-          />
+          {getHomepageLabel(platform)}
+          <input name="homepageUrl" value={form.homepageUrl} onChange={handleChange} placeholder="https://..." />
         </label>
 
         {!isRss && (
           <>
             <label>
               最新内容标题，可选
-              <input
-                name="title"
-                value={form.title}
-                onChange={handleChange}
-                placeholder="例如：周末独居日常"
-              />
+              <input name="title" value={form.title} onChange={handleChange} placeholder="例如：周末独居日常" />
             </label>
-
             <label>
               最新内容链接，可选
-              <input
-                name="updateUrl"
-                value={form.updateUrl}
-                onChange={handleChange}
-                placeholder="https://..."
-              />
+              <input name="updateUrl" value={form.updateUrl} onChange={handleChange} placeholder="https://..." />
             </label>
-
             <label>
               更新时间
-              <input
-                name="time"
-                value={form.time}
-                onChange={handleChange}
-                placeholder="10:32"
-              />
+              <input name="time" value={form.time} onChange={handleChange} placeholder="10:32" />
             </label>
           </>
         )}
 
-        <button className="submit-button" type="submit">
-          加入 follow
-        </button>
+        <button className="submit-button" type="submit">加入 follow</button>
       </form>
     </div>
+  );
+}
+
+function SettingsPage({ onExport, onImport, onClear }) {
+  return (
+    <section className="settings-page">
+      <div className="settings-title"><span className="blue-oval">设置</span></div>
+      <section className="settings-card">
+        <h2>数据管理</h2>
+        <div className="settings-actions">
+          <button type="button" onClick={onExport}>导出数据</button>
+          <label className="import-button">导入数据<input type="file" accept="application/json,.json" onChange={onImport} /></label>
+          <button className="danger-button" type="button" onClick={onClear}>清空数据</button>
+        </div>
+      </section>
+      <section className="settings-card">
+        <h2>关于</h2>
+        <p>follow v0.1</p>
+        <p>个人追更小工具</p>
+        <p>当前版本为 PWA 原型</p>
+      </section>
+    </section>
+  );
+}
+
+function SyncPage() {
+  return (
+    <section className="simple-page">
+      <span className="blue-oval">同步</span>
+      <h2>同步中心开发中</h2>
+      <p>这里后续会集中显示账号连接状态、同步记录和手动刷新入口。</p>
+    </section>
   );
 }
 
