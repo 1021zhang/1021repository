@@ -3,17 +3,8 @@ import { useState } from "react";
 const STORAGE_KEY = "follow_blue_oval_app_v1";
 const HOME_PLATFORM_IDS = ["youtube", "xiaohongshu", "weibo", "instagram"];
 
-const youtubeMockCreators = [
-  "Peter McKinnon",
-  "Sara Dietschy",
-  "MKBHD",
-  "The Futur",
-  "BestDressed",
-  "Vogue"
-];
-
 const initialPlatforms = [
-  { id: "youtube", name: "YouTube", syncType: "mock", homepageUrl: "https://www.youtube.com", connected: false, creators: [] },
+  { id: "youtube", name: "YouTube", syncType: "manual", homepageUrl: "https://www.youtube.com", connected: false, creators: [] },
   { id: "xiaohongshu", name: "小红书", syncType: "manual", homepageUrl: "https://www.xiaohongshu.com", connected: false, creators: [] },
   { id: "weibo", name: "微博", syncType: "manual", homepageUrl: "https://weibo.com", connected: false, creators: [] },
   { id: "instagram", name: "Instagram", syncType: "manual", homepageUrl: "https://www.instagram.com", connected: false, creators: [] },
@@ -105,23 +96,6 @@ function getCurrentTime() {
   return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
-function getYoutubeHomepage(name) {
-  return `https://www.youtube.com/@${name.toLowerCase().replaceAll(" ", "")}`;
-}
-
-function getMockUpdateTitle(name) {
-  const titles = {
-    "Peter McKinnon": "My Camera Bag 2026",
-    "Sara Dietschy": "Tech Desk Setup",
-    MKBHD: "What’s New This Week",
-    "The Futur": "Design systems that actually scale",
-    BestDressed: "Closet refresh before summer",
-    Vogue: "Inside a quiet morning routine"
-  };
-
-  return titles[name] || `${name} 发布了新内容`;
-}
-
 function getUnreadCreators(platform) {
   return platform.creators
     .filter((creator) => creator.selected !== false)
@@ -144,7 +118,7 @@ function getStatusText(platform, unreadCreators) {
   const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
 
   if (creatorCount === 0) {
-    if (platform.id === "youtube") return "可同步订阅频道";
+    if (platform.id === "youtube") return "还没添加频道";
     return "还没添加博主";
   }
 
@@ -158,7 +132,7 @@ function getStatusText(platform, unreadCreators) {
 }
 
 function getActionText(platform) {
-  if (platform.id === "youtube") return "关联 YouTube";
+  if (platform.id === "youtube") return "添加 YouTube 频道";
   if (platform.id === "xiaohongshu") return "添加小红书博主";
   if (platform.id === "weibo") return "添加微博博主";
   if (platform.id === "instagram") return "添加 Instagram 博主";
@@ -187,17 +161,28 @@ function getHomepageLabel(platform) {
   return "主页链接";
 }
 
+function getCreatorLabel(platform) {
+  if (platform.id === "rss") return "订阅源名称";
+  if (platform.id === "youtube") return "频道名";
+  return "博主名";
+}
+
+function getCreatorPlaceholder(platform) {
+  if (platform.id === "rss") return "例如：Design Feed";
+  if (platform.id === "youtube") return "例如：MKBHD";
+  if (platform.id === "instagram") return "例如：design";
+  return "例如：瑞英";
+}
+
 export default function App() {
   const [platforms, setPlatforms] = useState(loadPlatforms);
   const [activePlatformId, setActivePlatformId] = useState(null);
   const [manualPlatformId, setManualPlatformId] = useState(null);
-  const [connectPlatformId, setConnectPlatformId] = useState(null);
   const [showAddChoice, setShowAddChoice] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
 
   const activePlatform = platforms.find((platform) => platform.id === activePlatformId);
   const manualPlatform = platforms.find((platform) => platform.id === manualPlatformId);
-  const connectPlatform = platforms.find((platform) => platform.id === connectPlatformId);
 
   function updatePlatforms(nextPlatforms) {
     const normalizedPlatforms = normalizePlatforms(nextPlatforms);
@@ -267,14 +252,16 @@ export default function App() {
 
         const creatorName = formData.creator.trim();
         const homepageUrl = normalizeUrl(formData.homepageUrl);
-        const hasUpdate = formData.title.trim() && formData.updateUrl.trim();
+        const updateTitle = formData.title.trim();
+        const updateUrl = formData.updateUrl.trim();
+        const hasUpdate = updateTitle || updateUrl;
         const updates = hasUpdate
           ? [
               createUpdate(
                 `${formData.platformId}-manual-update-${Date.now()}`,
                 formData.time,
-                formData.title.trim(),
-                normalizeUrl(formData.updateUrl)
+                updateTitle || `${creatorName} 最新内容`,
+                updateUrl ? normalizeUrl(updateUrl) : ""
               )
             ]
           : [];
@@ -331,52 +318,15 @@ export default function App() {
     setManualPlatformId(null);
   }
 
-  function addSyncedCreators(platformId, names) {
-    updatePlatforms(
-      platforms.map((platform) => {
-        if (platform.id !== platformId) return platform;
-
-        const existingNames = new Set(platform.creators.map((creator) => creator.name));
-        const selectedCreators = names.map((name, index) =>
-          createCreator("youtube", name, getYoutubeHomepage(name), `youtube-source-${index + 1}`, [
-            createUpdate(
-              `youtube-source-${index + 1}-update-${Date.now()}`,
-              getCurrentTime(),
-              getMockUpdateTitle(name),
-              getYoutubeHomepage(name)
-            )
-          ])
-        );
-
-        return {
-          ...platform,
-          connected: true,
-          creators: [
-            ...selectedCreators.filter((creator) => !existingNames.has(creator.name)),
-            ...platform.creators
-          ]
-        };
-      })
-    );
-
-    setConnectPlatformId(null);
-  }
-
   function resetDemo() {
     updatePlatforms(initialPlatforms);
     setActivePlatformId(null);
     setManualPlatformId(null);
-    setConnectPlatformId(null);
     setShowAddChoice(false);
     setActiveTab("home");
   }
 
   function openPlatformAction(platform) {
-    if (platform.id === "youtube") {
-      setConnectPlatformId("youtube");
-      return;
-    }
-
     setManualPlatformId(platform.id);
   }
 
@@ -509,7 +459,6 @@ export default function App() {
           onAdd={manualPlatform.id === "rss" ? addRssSource : addManualCreator}
         />
       )}
-      {connectPlatform && <ConnectPlatformModal platform={connectPlatform} onClose={() => setConnectPlatformId(null)} onAdd={addSyncedCreators} />}
       {showAddChoice && <AddChoiceModal onClose={() => setShowAddChoice(false)} onChoose={openAddChoice} />}
     </main>
   );
@@ -619,7 +568,7 @@ function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHom
             creator.unreadUpdates.map((update) => (
               <article className="detail-card" key={`${creator.id}-${update.id}`}>
                 <CreatorRow creator={creator} update={update} />
-                <button className="open-content" type="button" onClick={() => onOpenUpdate({ platform, creator, update })}>打开内容 →</button>
+                <button className="open-content" type="button" onClick={() => onOpenUpdate({ platform, creator, update })}>进入主页 →</button>
               </article>
             ))
           )}
@@ -650,58 +599,6 @@ function PlatformDetail({ platform, onBack, onManualAdd, onOpenUpdate, onOpenHom
         </section>
       )}
     </section>
-  );
-}
-
-function ConnectPlatformModal({ platform, onClose, onAdd }) {
-  const [selectedNames, setSelectedNames] = useState(youtubeMockCreators.slice(0, 3));
-
-  function toggleCreator(name) {
-    setSelectedNames((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
-  }
-
-  function handleSubmit(event) {
-    event.preventDefault();
-    if (selectedNames.length === 0) {
-      alert("至少选择一个频道加入 follow");
-      return;
-    }
-    onAdd(platform.id, selectedNames);
-  }
-
-  return (
-    <div className="modal-mask">
-      <form className="modal-card" onSubmit={handleSubmit}>
-        <div className="modal-head">
-          <h2>关联 {platform.name}</h2>
-          <button type="button" onClick={onClose}>×</button>
-        </div>
-
-        <div className="mock-notice">
-          <strong>当前为模拟同步流程</strong>
-          <p>真实 YouTube 授权将在后续接入。</p>
-          <p>现在先用示例订阅频道测试体验。</p>
-        </div>
-
-        <ol className="connect-steps">
-          <li>正在请求授权</li>
-          <li>模拟读取订阅频道</li>
-          <li>发现 6 个订阅频道</li>
-        </ol>
-
-        <div className="channel-list">
-          {youtubeMockCreators.map((name, index) => (
-            <label className="channel-row" key={name}>
-              <input type="checkbox" checked={selectedNames.includes(name)} onChange={() => toggleCreator(name)} />
-              <span>{name}</span>
-              <small>{index < 3 ? "默认加入" : "可选"}</small>
-            </label>
-          ))}
-        </div>
-
-        <button className="submit-button" type="submit">加入 follow</button>
-      </form>
-    </div>
   );
 }
 
@@ -750,12 +647,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
   function handleSubmit(event) {
     event.preventDefault();
     if (!form.creator.trim() || !form.homepageUrl.trim()) {
-      alert(isRss ? "请填写订阅源名称和 RSS 链接" : "请填写博主名和主页链接");
-      return;
-    }
-
-    if (!isRss && Boolean(form.title.trim()) !== Boolean(form.updateUrl.trim())) {
-      alert("最新内容标题和最新内容链接需要一起填写，或都留空");
+      alert(`请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
 
@@ -778,8 +670,8 @@ function ManualAddModal({ platform, onClose, onAdd }) {
         </div>
 
         <label>
-          {isRss ? "订阅源名称" : "博主名"}
-          <input name="creator" value={form.creator} onChange={handleChange} placeholder={isRss ? "例如：Design Feed" : "例如：瑞英"} />
+          {getCreatorLabel(platform)}
+          <input name="creator" value={form.creator} onChange={handleChange} placeholder={getCreatorPlaceholder(platform)} />
         </label>
 
         <label>
