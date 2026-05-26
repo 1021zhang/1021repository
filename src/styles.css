@@ -388,6 +388,14 @@ button {
   overflow-wrap: anywhere;
 }
 
+.creator-debug {
+  margin: 4px 0 0;
+  color: var(--gray);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .followed-actions {
   display: flex;
   align-items: center;

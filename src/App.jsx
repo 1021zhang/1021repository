@@ -254,7 +254,10 @@ function getUnreadCreators(platform) {
     .filter((creator) => creator.selected !== false)
     .map((creator) => ({
       ...creator,
-      unreadUpdates: creator.updates.filter((update) => !update.read)
+      unreadUpdates:
+        platform.id === "youtube"
+          ? creator.updates.filter((update) => !update.read).slice(0, 1)
+          : creator.updates.filter((update) => !update.read)
     }))
     .filter((creator) => creator.unreadUpdates.length > 0);
 }
@@ -581,7 +584,7 @@ export default function App() {
     );
 
     const resultMap = new Map(results.map((result) => [result.creatorId, result]));
-    let addedCount = 0;
+    let updatedCreatorCount = 0;
     const apiFailedResults = results.filter((result) => result.failed);
     const failedCount = missingTargetCreators.length + apiFailedResults.length;
     const syncedAt = new Date().toISOString();
@@ -606,26 +609,37 @@ export default function App() {
               }
             : {};
 
-          if (result.videos.length === 0) return { ...creator, ...resolvedFields };
+          const latestVideo = result.videos[0];
+          if (!latestVideo) return { ...creator, ...resolvedFields };
 
           const existingKeys = new Set(
             creator.updates.flatMap((update) => [update.id, normalizeExternalUrl(update.url)]).filter(Boolean)
           );
-          const newUpdates = result.videos
-            .filter((video) => !existingKeys.has(video.id) && !existingKeys.has(normalizeExternalUrl(video.url)))
-            .map((video) =>
-              createUpdate(
-                video.id,
-                formatVideoTime(video.publishedAt || video.updatedAt),
-                video.title,
-                video.url,
-                false,
-                { source: "youtube-feed" }
-              )
-            );
+          const latestVideoExists =
+            existingKeys.has(latestVideo.id) || existingKeys.has(normalizeExternalUrl(latestVideo.url));
 
-          addedCount += newUpdates.length;
-          return { ...creator, ...resolvedFields, updates: [...newUpdates, ...creator.updates] };
+          if (latestVideoExists) {
+            const normalizedLatestUrl = normalizeExternalUrl(latestVideo.url);
+            const normalizedUpdates = creator.updates.map((update) => {
+              const isLatestUpdate = update.id === latestVideo.id || normalizeExternalUrl(update.url) === normalizedLatestUrl;
+              return update.read || isLatestUpdate ? update : { ...update, read: true };
+            });
+
+            return { ...creator, ...resolvedFields, updates: normalizedUpdates };
+          }
+
+          updatedCreatorCount += 1;
+          const latestUpdate = createUpdate(
+            latestVideo.id,
+            formatVideoTime(latestVideo.publishedAt || latestVideo.updatedAt),
+            latestVideo.title,
+            latestVideo.url,
+            false,
+            { source: "youtube-feed" }
+          );
+          const readExistingUpdates = creator.updates.map((update) => (update.read ? update : { ...update, read: true }));
+
+          return { ...creator, ...resolvedFields, updates: [latestUpdate, ...readExistingUpdates] };
         })
       };
     });
@@ -662,19 +676,19 @@ export default function App() {
       } else if (failedCount > 0) {
         setYouTubeSyncState({
           status: "success",
-          message: `同步完成，发现 ${addedCount} 条新更新，${failedCount} 个频道失败`,
+          message: `同步完成，发现 ${updatedCreatorCount} 位博主的新更新，${failedCount} 个频道失败`,
           debugInfo: firstDebugInfo
         });
       } else {
         setYouTubeSyncState({
           status: "success",
-          message: addedCount > 0 ? `发现 ${addedCount} 条新更新` : "同步完成，暂无新更新",
+          message: updatedCreatorCount > 0 ? `发现 ${updatedCreatorCount} 位博主的新更新` : "同步完成，暂无新更新",
           debugInfo: null
         });
       }
     }
 
-    return { addedCount, failedCount };
+    return { addedCount: updatedCreatorCount, failedCount };
   }
 
   function addManualCreator(formData) {
@@ -724,8 +738,8 @@ export default function App() {
                     ...creator,
                     selected: true,
                     homepageUrl,
-                    sourceId: channelId || (isValidYouTubeChannelId(creator.sourceId) ? creator.sourceId : ""),
-                    feedUrl: feedUrl || (isValidYouTubeChannelId(creator.sourceId) ? creator.feedUrl : ""),
+                    sourceId: platform.id === "youtube" ? channelId : creator.sourceId,
+                    feedUrl: platform.id === "youtube" ? feedUrl : creator.feedUrl,
                     handle: platform.id === "youtube" ? youtubeInfo.handle : creator.handle,
                     updates: [...updates, ...creator.updates]
                   }
@@ -1063,6 +1077,7 @@ function PlatformDetail({
 
       {platform.creators.length > 0 && (
         <FollowedCreatorsSection
+          platformId={platform.id}
           creators={followedCreators}
           onOpenCreator={(creator) => onOpenFollowedCreator(platform, creator)}
           onEditCreator={onEditCreator}
@@ -1095,14 +1110,21 @@ function PlatformDetail({
   );
 }
 
-function FollowedCreatorsSection({ creators, onOpenCreator, onEditCreator, onRemoveCreator }) {
+function FollowedCreatorsSection({ platformId, creators, onOpenCreator, onEditCreator, onRemoveCreator }) {
   return (
     <section className="followed-area">
       <h3>已关注博主 {creators.length} 位</h3>
       <div className="followed-list">
         {creators.map((creator) => (
           <div className="followed-item" key={creator.id}>
-            <strong>{creator.name}</strong>
+            <div>
+              <strong>{creator.name}</strong>
+              {platformId === "youtube" && (
+                <p className="creator-debug">
+                  {creator.sourceId ? `sourceId: ${creator.sourceId}` : "等待同步识别 channelId"}
+                </p>
+              )}
+            </div>
             <div className="followed-actions">
               {isMockOrEmptyUrl(creator.homepageUrl) ? (
                 <span>暂无主页链接</span>
