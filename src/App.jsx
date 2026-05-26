@@ -1098,8 +1098,8 @@ function PlatformDetail({
                   <div>
                     <strong>{update.creatorName}</strong>
                     <p>{update.title}</p>
+                    <button type="button" onClick={() => onOpenHomepage(platform, update)}>进入主页 →</button>
                   </div>
-                  <button type="button" onClick={() => onOpenHomepage(platform, update)}>进入主页 →</button>
                 </div>
               ))}
             </div>

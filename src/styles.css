@@ -434,14 +434,16 @@ button {
 
 .read-item {
   display: grid;
-  grid-template-columns: 1fr auto;
   gap: 12px;
-  align-items: center;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
 }
 
 .read-item button {
+  display: block;
+  width: fit-content;
+  margin-top: 12px;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--blue-dark);
