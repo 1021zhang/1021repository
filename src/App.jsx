@@ -64,12 +64,17 @@ function normalizeCreators(platform) {
     return platform.creators.map((creator) => {
       const youtubeSourceId =
         platform.id === "youtube" ? creator.sourceId || youtubeMockChannelIds[creator.name] || "" : creator.sourceId;
+      const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(creator.homepageUrl || creator.handle || "") : null;
 
       return {
         ...creator,
         avatar: creator.avatar || creator.name?.slice(0, 1).toUpperCase() || "?",
-        sourceId: youtubeSourceId || creator.sourceId,
-        feedUrl: platform.id === "youtube" && youtubeSourceId ? creator.feedUrl || getYouTubeFeedUrl(youtubeSourceId) : creator.feedUrl,
+        sourceId: platform.id === "youtube" ? youtubeSourceId || youtubeInfo?.sourceId || "" : creator.sourceId,
+        feedUrl:
+          platform.id === "youtube" && youtubeSourceId
+            ? creator.feedUrl || getYouTubeFeedUrl(youtubeSourceId)
+            : creator.feedUrl || youtubeInfo?.feedUrl,
+        handle: platform.id === "youtube" ? creator.handle || youtubeInfo?.handle || "" : creator.handle,
         selected: creator.selected !== false,
         updates: Array.isArray(creator.updates) ? creator.updates : []
       };
@@ -172,13 +177,48 @@ function normalizeYouTubeChannelId(input) {
   return trimmedInput;
 }
 
+function resolveYouTubeChannelInfo(input) {
+  const trimmedInput = String(input || "").trim();
+  if (!trimmedInput) {
+    return { sourceId: "", homepageUrl: "", feedUrl: "", handle: "" };
+  }
+
+  const sourceId = normalizeYouTubeChannelId(trimmedInput);
+  if (isValidYouTubeChannelId(sourceId)) {
+    return {
+      sourceId,
+      homepageUrl: `https://www.youtube.com/channel/${sourceId}`,
+      feedUrl: getYouTubeFeedUrl(sourceId),
+      handle: ""
+    };
+  }
+
+  const handleMatch = trimmedInput.match(/(?:youtube\.com\/)?@([A-Za-z0-9._-]+)/i) || trimmedInput.match(/^@([A-Za-z0-9._-]+)/);
+  if (handleMatch) {
+    const handle = handleMatch[1];
+    return {
+      sourceId: "",
+      homepageUrl: `https://www.youtube.com/@${handle}`,
+      feedUrl: "",
+      handle
+    };
+  }
+
+  return {
+    sourceId: "",
+    homepageUrl: normalizeExternalUrl(trimmedInput),
+    feedUrl: "",
+    handle: ""
+  };
+}
+
 function isValidYouTubeChannelId(channelId) {
   return /^UC[A-Za-z0-9_-]+$/.test(String(channelId || "").trim());
 }
 
 function getYouTubeChannelId(creator) {
   const sourceId = normalizeYouTubeChannelId(creator.sourceId);
-  if (sourceId && !sourceId.startsWith("manual-") && !sourceId.startsWith("legacy-")) return sourceId;
+  if (isValidYouTubeChannelId(sourceId)) return sourceId;
 
   try {
     const feedUrl = normalizeExternalUrl(creator.feedUrl);
@@ -193,6 +233,18 @@ function getYouTubeHomepageUrl(homepageUrl, channelId) {
   const normalizedHomepageUrl = normalizeExternalUrl(homepageUrl);
   if (normalizedHomepageUrl) return normalizedHomepageUrl;
   return isValidYouTubeChannelId(channelId) ? `https://www.youtube.com/channel/${channelId}` : "";
+}
+
+function getYouTubeCreatorSyncTarget(creator) {
+  const channelId = getYouTubeChannelId(creator);
+  if (isValidYouTubeChannelId(channelId)) return { type: "channelId", value: channelId };
+
+  const homepageUrl = normalizeExternalUrl(creator.homepageUrl);
+  if (homepageUrl) return { type: "url", value: homepageUrl };
+
+  if (creator.handle) return { type: "handle", value: String(creator.handle).replace(/^@/, "") };
+
+  return null;
 }
 
 function getUnreadCreators(platform) {
@@ -417,10 +469,11 @@ export default function App() {
             if (creator.id !== creatorId) return creator;
 
             const creatorName = formData.creator.trim();
-            const channelId = platform.id === "youtube" ? normalizeYouTubeChannelId(formData.channelId) : creator.sourceId;
+            const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(formData.homepageUrl) : null;
+            const channelId = youtubeInfo?.sourceId || "";
             const homepageUrl =
               platform.id === "youtube"
-                ? getYouTubeHomepageUrl(formData.homepageUrl, channelId)
+                ? youtubeInfo.homepageUrl
                 : normalizeExternalUrl(formData.homepageUrl);
 
             return {
@@ -429,7 +482,8 @@ export default function App() {
               avatar: creatorName.slice(0, 1).toUpperCase(),
               homepageUrl,
               sourceId: platform.id === "youtube" ? channelId : creator.sourceId,
-              feedUrl: platform.id === "youtube" && channelId ? getYouTubeFeedUrl(channelId) : creator.feedUrl
+              feedUrl: platform.id === "youtube" ? youtubeInfo.feedUrl : creator.feedUrl,
+              handle: platform.id === "youtube" ? youtubeInfo.handle : creator.handle
             };
           })
         };
@@ -443,11 +497,10 @@ export default function App() {
     const silent = options.silent === true;
     const youtube = platforms.find((platform) => platform.id === "youtube");
     const creators = youtube?.creators.filter((creator) => creator.selected !== false) || [];
-    const channelCreators = creators
-      .map((creator) => ({ creator, channelId: getYouTubeChannelId(creator) }))
-      .filter(({ channelId }) => Boolean(channelId));
-    const invalidChannelCreators = channelCreators.filter(({ channelId }) => !isValidYouTubeChannelId(channelId));
-    const syncableCreators = channelCreators.filter(({ channelId }) => isValidYouTubeChannelId(channelId));
+    const syncTargets = creators
+      .map((creator) => ({ creator, target: getYouTubeCreatorSyncTarget(creator) }))
+      .filter(({ target }) => Boolean(target));
+    const missingTargetCreators = creators.filter((creator) => !getYouTubeCreatorSyncTarget(creator));
 
     if (!youtube) return { addedCount: 0, failedCount: 0 };
 
@@ -455,51 +508,42 @@ export default function App() {
       setYouTubeSyncState({ status: "syncing", message: "同步中..." });
     }
 
-    if (channelCreators.length === 0) {
+    if (syncTargets.length === 0) {
       const syncedAt = new Date().toISOString();
       updatePlatforms(platforms.map((platform) => (platform.id === "youtube" ? { ...platform, lastSyncedAt: syncedAt } : platform)));
       if (!silent) {
-        setYouTubeSyncState({ status: "success", message: "还没有可同步的 YouTube 频道，请先添加 channelId。" });
+        setYouTubeSyncState({ status: "success", message: "还没有可同步的 YouTube 频道，请先添加频道链接。" });
       }
       return { addedCount: 0, failedCount: 0 };
     }
 
-    if (syncableCreators.length === 0) {
-      const syncedAt = new Date().toISOString();
-      const firstInvalid = invalidChannelCreators[0]?.creator.name || "频道";
-      updatePlatforms(
-        platforms.map((platform) =>
-          platform.id === "youtube"
-            ? { ...platform, lastSyncedAt: syncedAt, lastSyncFailedCount: invalidChannelCreators.length }
-            : platform
-        )
-      );
-      if (!silent) {
-        setYouTubeSyncState({ status: "error", message: `${firstInvalid} 的 channelId 可能不正确` });
-      }
-      return { addedCount: 0, failedCount: invalidChannelCreators.length };
-    }
-
     const results = await Promise.all(
-      syncableCreators.map(async ({ creator, channelId }) => {
+      syncTargets.map(async ({ creator, target }) => {
         try {
-          const response = await fetch(`/api/youtube-feed?channelId=${encodeURIComponent(channelId)}`);
+          const queryKey = target.type === "channelId" ? "channelId" : target.type === "handle" ? "handle" : "url";
+          const response = await fetch(`/api/youtube-feed?${queryKey}=${encodeURIComponent(target.value)}`);
           const data = await response.json().catch(() => ({}));
 
           if (!response.ok) {
-            const message = data.error === "Missing channelId" ? "channelId 缺失" : "YouTube feed 无法读取";
+            const message = data.error === "Missing channelId" ? "channelId 缺失" : data.error || "YouTube feed 无法读取";
             throw new Error(message);
           }
 
           return {
             creatorId: creator.id,
             videos: Array.isArray(data.videos) ? data.videos : [],
+            resolvedChannelId: data.resolvedChannelId || data.channelId || "",
             failed: false,
             errorMessage: ""
           };
         } catch (error) {
           console.warn("YouTube feed sync failed", creator.name, error);
-          const errorMessage = error instanceof TypeError ? "网络请求失败" : error.message || "网络请求失败";
+          const rawMessage = error instanceof TypeError ? "网络请求失败" : error.message || "网络请求失败";
+          const errorMessage = rawMessage.includes("无法识别这个 YouTube 频道")
+            ? `${creator.name} 暂时无法识别频道 ID，请尝试使用 /channel/UC... 链接`
+            : rawMessage === "Failed to fetch YouTube feed"
+              ? "YouTube feed 无法读取"
+            : rawMessage;
           return { creatorId: creator.id, videos: [], failed: true, errorMessage };
         }
       })
@@ -508,7 +552,7 @@ export default function App() {
     const resultMap = new Map(results.map((result) => [result.creatorId, result]));
     let addedCount = 0;
     const apiFailedResults = results.filter((result) => result.failed);
-    const failedCount = invalidChannelCreators.length + apiFailedResults.length;
+    const failedCount = missingTargetCreators.length + apiFailedResults.length;
     const syncedAt = new Date().toISOString();
 
     const nextPlatforms = platforms.map((platform) => {
@@ -521,7 +565,17 @@ export default function App() {
         lastSyncFailedCount: failedCount,
         creators: platform.creators.map((creator) => {
           const result = resultMap.get(creator.id);
-          if (!result || result.failed || result.videos.length === 0) return creator;
+          if (!result || result.failed) return creator;
+
+          const resolvedChannelId = normalizeYouTubeChannelId(result.resolvedChannelId);
+          const resolvedFields = isValidYouTubeChannelId(resolvedChannelId)
+            ? {
+                sourceId: resolvedChannelId,
+                feedUrl: getYouTubeFeedUrl(resolvedChannelId)
+              }
+            : {};
+
+          if (result.videos.length === 0) return { ...creator, ...resolvedFields };
 
           const existingKeys = new Set(
             creator.updates.flatMap((update) => [update.id, normalizeExternalUrl(update.url)]).filter(Boolean)
@@ -540,7 +594,7 @@ export default function App() {
             );
 
           addedCount += newUpdates.length;
-          return { ...creator, updates: [...newUpdates, ...creator.updates] };
+          return { ...creator, ...resolvedFields, updates: [...newUpdates, ...creator.updates] };
         })
       };
     });
@@ -549,11 +603,11 @@ export default function App() {
 
     if (!silent) {
       if (failedCount > 0 && results.every((result) => result.failed)) {
-        const firstInvalidMessage = invalidChannelCreators[0]
-          ? `${invalidChannelCreators[0].creator.name} 的 channelId 可能不正确`
+        const firstMissingMessage = missingTargetCreators[0]
+          ? `${missingTargetCreators[0].name} 暂时无法识别频道 ID，请尝试使用 /channel/UC... 链接`
           : "";
         const firstApiMessage = apiFailedResults[0]?.errorMessage || "";
-        setYouTubeSyncState({ status: "error", message: `同步失败：${firstInvalidMessage || firstApiMessage || "网络请求失败"}` });
+        setYouTubeSyncState({ status: "error", message: `同步失败：${firstMissingMessage || firstApiMessage || "网络请求失败"}` });
       } else if (failedCount > 0) {
         setYouTubeSyncState({
           status: "success",
@@ -575,18 +629,21 @@ export default function App() {
       platforms.map((platform) => {
         if (platform.id !== formData.platformId) return platform;
 
-        const creatorName = formData.creator.trim();
-        const channelId = platform.id === "youtube" ? normalizeYouTubeChannelId(formData.channelId) : "";
+        const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(formData.homepageUrl) : null;
+        const creatorName =
+          formData.creator.trim() ||
+          (platform.id === "youtube" ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道" : "");
+        const channelId = youtubeInfo?.sourceId || "";
         const homepageUrl =
           platform.id === "youtube"
-            ? getYouTubeHomepageUrl(formData.homepageUrl, channelId)
+            ? youtubeInfo.homepageUrl
             : normalizeExternalUrl(formData.homepageUrl);
         const sourceId = platform.id === "youtube" ? channelId : `manual-${Date.now()}`;
         const creatorRecordId = channelId || `manual-${Date.now()}`;
-        const feedUrl = channelId ? getYouTubeFeedUrl(channelId) : "";
+        const feedUrl = youtubeInfo?.feedUrl || "";
         const updateTitle = formData.title.trim();
         const updateUrl = formData.updateUrl.trim();
-        const hasUpdate = updateTitle || updateUrl;
+        const hasUpdate = platform.id !== "youtube" && (updateTitle || updateUrl);
         const updates = hasUpdate
           ? [
               createUpdate(
@@ -616,6 +673,7 @@ export default function App() {
                     homepageUrl,
                     sourceId: channelId || creator.sourceId,
                     feedUrl: feedUrl || creator.feedUrl,
+                    handle: platform.id === "youtube" ? youtubeInfo.handle : creator.handle,
                     updates: [...updates, ...creator.updates]
                   }
                 : creator
@@ -629,6 +687,7 @@ export default function App() {
           creators: [
             createCreator(formData.platformId, creatorName, homepageUrl, sourceId, updates, {
               ...(feedUrl ? { feedUrl } : {}),
+              ...(platform.id === "youtube" && youtubeInfo?.handle ? { handle: youtubeInfo.handle } : {}),
               ...(platform.id === "youtube" && !channelId ? { id: `${formData.platformId}-${creatorRecordId}` } : {})
             }),
             ...platform.creators
@@ -1087,8 +1146,8 @@ function ManualAddModal({ platform, onClose, onAdd }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if (!form.creator.trim() || (!isYouTube && !form.homepageUrl.trim())) {
-      alert(isYouTube ? "请填写频道名称" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
+    if ((!isYouTube && !form.creator.trim()) || !form.homepageUrl.trim()) {
+      alert(isYouTube ? "请填写 YouTube 频道链接" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
 
@@ -1112,24 +1171,31 @@ function ManualAddModal({ platform, onClose, onAdd }) {
         </div>
 
         <label>
-          {getCreatorLabel(platform)}
-          <input name="creator" value={form.creator} onChange={handleChange} placeholder={getCreatorPlaceholder(platform)} />
+          {isYouTube ? "频道名，可选" : getCreatorLabel(platform)}
+          <input
+            name="creator"
+            value={form.creator}
+            onChange={handleChange}
+            placeholder={isYouTube ? "例如：emma chamberlain" : getCreatorPlaceholder(platform)}
+          />
         </label>
 
         <label>
-          {getHomepageLabel(platform)}
-          <input name="homepageUrl" value={form.homepageUrl} onChange={handleChange} placeholder="https://..." />
+          {isYouTube ? "YouTube 频道链接" : getHomepageLabel(platform)}
+          <input
+            name="homepageUrl"
+            value={form.homepageUrl}
+            onChange={handleChange}
+            placeholder={isYouTube ? "https://www.youtube.com/@casey" : "https://..."}
+          />
+          {isYouTube && (
+            <span className="field-note">
+              粘贴 YouTube 频道主页即可，支持 @handle 或 /channel/UC... 链接。系统会自动识别用于同步的频道 ID。
+            </span>
+          )}
         </label>
 
-        {isYouTube && (
-          <label>
-            YouTube channelId 或频道链接
-            <input name="channelId" value={form.channelId} onChange={handleChange} placeholder="例如：UC... 或 youtube.com/channel/UC..." />
-            <span className="field-note">可以填写 UC 开头的 channelId，也可以粘贴 youtube.com/channel/UC... 链接，系统会自动识别。</span>
-          </label>
-        )}
-
-        {!isRss && (
+        {!isRss && !isYouTube && (
           <>
             <label>
               最新内容标题，可选
@@ -1156,8 +1222,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
   const isYouTube = platform.id === "youtube";
   const [form, setForm] = useState({
     creator: creator.name || "",
-    homepageUrl: creator.homepageUrl || "",
-    channelId: isYouTube ? creator.sourceId || "" : ""
+    homepageUrl: creator.homepageUrl || ""
   });
 
   function handleChange(event) {
@@ -1167,8 +1232,8 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if (!form.creator.trim() || (!isYouTube && !form.homepageUrl.trim())) {
-      alert(isYouTube ? "请填写频道名称" : "请填写博主名和主页链接");
+    if (!form.creator.trim() || !form.homepageUrl.trim()) {
+      alert(isYouTube ? "请填写频道名和 YouTube 频道链接" : "请填写博主名和主页链接");
       return;
     }
 
@@ -1189,16 +1254,14 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
         </label>
 
         <label>
-          {isYouTube ? "YouTube 频道主页链接" : "主页链接"}
-          <input name="homepageUrl" value={form.homepageUrl} onChange={handleChange} placeholder="https://..." />
+          {isYouTube ? "YouTube 频道链接" : "主页链接"}
+          <input
+            name="homepageUrl"
+            value={form.homepageUrl}
+            onChange={handleChange}
+            placeholder={isYouTube ? "https://www.youtube.com/@casey" : "https://..."}
+          />
         </label>
-
-        {isYouTube && (
-          <label>
-            YouTube channelId 或频道链接
-            <input name="channelId" value={form.channelId} onChange={handleChange} placeholder="例如：UC... 或 youtube.com/channel/UC..." />
-          </label>
-        )}
 
         <button className="submit-button" type="submit">保存修改</button>
       </form>
