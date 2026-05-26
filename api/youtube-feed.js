@@ -35,6 +35,12 @@ function parseVideos(xml) {
   });
 }
 
+const YOUTUBE_FEED_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; follow-rss-checker/0.1)",
+  Accept: "application/atom+xml, application/xml, text/xml, */*",
+  "Accept-Language": "en-US,en;q=0.9"
+};
+
 function firstQueryValue(value) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -88,6 +94,7 @@ export default async function handler(request, response) {
   const url = firstQueryValue(request.query.url);
   const handle = firstQueryValue(request.query.handle);
   const input = channelId || url || handle || "";
+  let feedUrl = "";
 
   if (!channelId && !url && !handle) {
     response.status(400).json({
@@ -112,8 +119,8 @@ export default async function handler(request, response) {
       return;
     }
 
-    const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(resolvedChannelId)}`;
-    const feedResponse = await fetch(feedUrl);
+    feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(resolvedChannelId)}`;
+    const feedResponse = await fetch(feedUrl, { headers: YOUTUBE_FEED_HEADERS });
     const xml = await feedResponse.text();
 
     if (!feedResponse.ok) {
@@ -124,6 +131,9 @@ export default async function handler(request, response) {
         message: "YouTube feed 请求失败",
         feedUrl,
         status: feedResponse.status,
+        statusText: feedResponse.statusText,
+        errorMessage: feedResponse.statusText || "HTTP request failed",
+        responsePreview: xml.slice(0, 300),
         videos: []
       });
       return;
@@ -136,7 +146,9 @@ export default async function handler(request, response) {
         channelId: resolvedChannelId,
         resolvedChannelId,
         feedUrl,
-        preview: xml.slice(0, 200),
+        status: feedResponse.status,
+        statusText: feedResponse.statusText,
+        responsePreview: xml.slice(0, 300),
         videos: []
       });
       return;
@@ -151,6 +163,8 @@ export default async function handler(request, response) {
         channelId: resolvedChannelId,
         resolvedChannelId,
         feedUrl,
+        status: feedResponse.status,
+        statusText: feedResponse.statusText,
         videos: []
       });
       return;
@@ -168,7 +182,11 @@ export default async function handler(request, response) {
       resolvedChannelId: "",
       error: "feed_fetch_failed",
       message: "YouTube feed 请求失败",
-      detail: error instanceof Error ? error.message : String(error),
+      feedUrl,
+      status: 0,
+      statusText: "",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      responsePreview: "",
       videos: []
     });
   }

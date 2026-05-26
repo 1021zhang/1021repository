@@ -667,6 +667,18 @@ select:focus {
   color: #777777;
 }
 
+.feed-test-button {
+  width: fit-content;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue-dark);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
 .submit-button:disabled {
   opacity: 0.58;
   cursor: not-allowed;

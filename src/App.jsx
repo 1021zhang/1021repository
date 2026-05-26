@@ -548,7 +548,11 @@ export default function App() {
                 sourceId: creator.sourceId || "",
                 homepageUrl: creator.homepageUrl || "",
                 feedUrl: creator.feedUrl || data.feedUrl || "",
-                error: data.error || "unknown"
+                error: data.error || "unknown",
+                status: data.status ?? "",
+                statusText: data.statusText || "",
+                errorMessage: data.errorMessage || data.message || getYouTubeSyncErrorMessage(data.error),
+                responsePreview: (data.responsePreview || data.preview || "").slice(0, 200)
               }
             };
           }
@@ -575,7 +579,11 @@ export default function App() {
               sourceId: creator.sourceId || "",
               homepageUrl: creator.homepageUrl || "",
               feedUrl: creator.feedUrl || "",
-              error: "network_request_failed"
+              error: "network_request_failed",
+              status: "",
+              statusText: "",
+              errorMessage: error instanceof Error ? error.message : String(error),
+              responsePreview: ""
             }
           };
         }
@@ -643,7 +651,11 @@ export default function App() {
               sourceId: missingTargetCreators[0].sourceId || "",
               homepageUrl: missingTargetCreators[0].homepageUrl || "",
               feedUrl: missingTargetCreators[0].feedUrl || "",
-              error: "missing_input"
+              error: "missing_input",
+              status: "",
+              statusText: "",
+              errorMessage: "缺少 YouTube 频道链接或 channelId",
+              responsePreview: ""
             }
           : null);
 
@@ -1345,6 +1357,20 @@ function SettingsPage({ onExport, onImport, onClear }) {
 function SyncPage({ youtubePlatform, syncState, onSync }) {
   const channelCount = youtubePlatform?.creators.filter((creator) => creator.selected !== false).length || 0;
   const isSyncing = syncState.status === "syncing";
+  const debugInfo = syncState.debugInfo;
+  const debugItems = debugInfo
+    ? [
+        ["失败频道名", debugInfo.creatorName],
+        ["当前 sourceId", debugInfo.sourceId],
+        ["当前 homepageUrl", debugInfo.homepageUrl],
+        ["当前 feedUrl", debugInfo.feedUrl],
+        ["错误类型", debugInfo.error],
+        ["HTTP 状态码", debugInfo.status],
+        ["状态文字", debugInfo.statusText],
+        ["错误信息", debugInfo.errorMessage],
+        ["responsePreview", debugInfo.responsePreview?.slice(0, 200)]
+      ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
+    : [];
 
   return (
     <section className="simple-page">
@@ -1358,14 +1384,23 @@ function SyncPage({ youtubePlatform, syncState, onSync }) {
           {isSyncing ? "同步中..." : "立即同步 YouTube"}
         </button>
         {syncState.message && <p className="sync-message">{syncState.message}</p>}
-        {syncState.debugInfo && (
+        {debugInfo && (
           <div className="sync-debug">
             <strong>调试信息：</strong>
-            <span>失败频道名：{syncState.debugInfo.creatorName || "-"}</span>
-            <span>当前 sourceId：{syncState.debugInfo.sourceId || "-"}</span>
-            <span>当前 homepageUrl：{syncState.debugInfo.homepageUrl || "-"}</span>
-            <span>当前 feedUrl：{syncState.debugInfo.feedUrl || "-"}</span>
-            <span>错误类型：{syncState.debugInfo.error || "-"}</span>
+            {debugItems.map(([label, value]) => (
+              <span key={label}>{label}：{value}</span>
+            ))}
+            {debugInfo.feedUrl && (
+              <button
+                className="feed-test-button"
+                type="button"
+                onClick={() => {
+                  window.location.href = debugInfo.feedUrl;
+                }}
+              >
+                打开 feed 测试 →
+              </button>
+            )}
           </div>
         )}
       </section>
