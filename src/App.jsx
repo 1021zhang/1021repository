@@ -1,7 +1,18 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "follow_blue_oval_app_v1";
 const HOME_PLATFORM_IDS = ["youtube", "xiaohongshu", "weibo", "instagram"];
+const YOUTUBE_FEED_BASE_URL = "https://www.youtube.com/feeds/videos.xml?channel_id=";
+const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+
+const youtubeMockChannelIds = {
+  "Peter McKinnon": "UC-placeholder-peter-mckinnon",
+  "Sara Dietschy": "UC-placeholder-sara-dietschy",
+  MKBHD: "UCVYamHliCI9rw1tHR1xbkfw",
+  "The Futur": "UC-placeholder-the-futur",
+  BestDressed: "UC-placeholder-bestdressed",
+  Vogue: "UC-placeholder-vogue"
+};
 
 const initialPlatforms = [
   { id: "youtube", name: "YouTube", syncType: "manual", homepageUrl: "https://www.youtube.com", connected: false, creators: [] },
@@ -11,20 +22,26 @@ const initialPlatforms = [
   { id: "rss", name: "RSS", syncType: "rss", homepageUrl: "", connected: false, creators: [] }
 ];
 
-function createCreator(platformId, name, homepageUrl, sourceId, updates = []) {
+function getYouTubeFeedUrl(channelId) {
+  const normalizedChannelId = String(channelId || "").trim();
+  return normalizedChannelId ? `${YOUTUBE_FEED_BASE_URL}${encodeURIComponent(normalizedChannelId)}` : "";
+}
+
+function createCreator(platformId, name, homepageUrl, sourceId, updates = [], extra = {}) {
   return {
-    id: `${platformId}-${sourceId}`,
+    id: extra.id || `${platformId}-${sourceId || Date.now()}`,
     name,
     avatar: name.slice(0, 1).toUpperCase(),
     homepageUrl,
-    sourceId,
+    sourceId: sourceId || "",
     selected: true,
-    updates
+    updates,
+    ...extra
   };
 }
 
-function createUpdate(id, time, title, url, read = false) {
-  return { id, title, url, time, read };
+function createUpdate(id, time, title, url, read = false, extra = {}) {
+  return { id, title, url, time, read, ...extra };
 }
 
 function normalizePlatforms(platforms) {
@@ -44,12 +61,19 @@ function normalizePlatforms(platforms) {
 
 function normalizeCreators(platform) {
   if (Array.isArray(platform.creators)) {
-    return platform.creators.map((creator) => ({
-      ...creator,
-      avatar: creator.avatar || creator.name?.slice(0, 1).toUpperCase() || "?",
-      selected: creator.selected !== false,
-      updates: Array.isArray(creator.updates) ? creator.updates : []
-    }));
+    return platform.creators.map((creator) => {
+      const youtubeSourceId =
+        platform.id === "youtube" ? creator.sourceId || youtubeMockChannelIds[creator.name] || "" : creator.sourceId;
+
+      return {
+        ...creator,
+        avatar: creator.avatar || creator.name?.slice(0, 1).toUpperCase() || "?",
+        sourceId: youtubeSourceId || creator.sourceId,
+        feedUrl: platform.id === "youtube" && youtubeSourceId ? creator.feedUrl || getYouTubeFeedUrl(youtubeSourceId) : creator.feedUrl,
+        selected: creator.selected !== false,
+        updates: Array.isArray(creator.updates) ? creator.updates : []
+      };
+    });
   }
 
   if (!Array.isArray(platform.updates)) return [];
@@ -118,6 +142,32 @@ function getCurrentTime() {
   return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
+function formatSyncTime(value) {
+  if (!value) return "尚未同步";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "尚未同步";
+  return `${date.toLocaleDateString("zh-CN")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatVideoTime(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return getCurrentTime();
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function getYouTubeChannelId(creator) {
+  const sourceId = String(creator.sourceId || "").trim();
+  if (sourceId && !sourceId.startsWith("manual-") && !sourceId.startsWith("legacy-")) return sourceId;
+
+  try {
+    const feedUrl = normalizeExternalUrl(creator.feedUrl);
+    if (!feedUrl) return "";
+    return new URL(feedUrl).searchParams.get("channel_id") || "";
+  } catch {
+    return "";
+  }
+}
+
 function getUnreadCreators(platform) {
   return platform.creators
     .filter((creator) => creator.selected !== false)
@@ -184,7 +234,7 @@ function getManualModalTitle(platform) {
 
 function getHomepageLabel(platform) {
   if (platform.id === "rss") return "RSS 链接";
-  if (platform.id === "youtube") return "频道主页链接";
+  if (platform.id === "youtube") return "YouTube 频道主页链接，可选";
   if (platform.id === "instagram") return "Instagram 主页链接";
   return "主页链接";
 }
@@ -208,15 +258,32 @@ export default function App() {
   const [manualPlatformId, setManualPlatformId] = useState(null);
   const [showAddChoice, setShowAddChoice] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
+  const [youtubeSyncState, setYouTubeSyncState] = useState({ status: "idle", message: "" });
+  const autoSyncStartedRef = useRef(false);
 
   const activePlatform = platforms.find((platform) => platform.id === activePlatformId);
   const manualPlatform = platforms.find((platform) => platform.id === manualPlatformId);
+  const youtubePlatform = platforms.find((platform) => platform.id === "youtube");
 
   function updatePlatforms(nextPlatforms) {
     const normalizedPlatforms = normalizePlatforms(nextPlatforms);
     setPlatforms(normalizedPlatforms);
     savePlatforms(normalizedPlatforms);
   }
+
+  useEffect(() => {
+    if (autoSyncStartedRef.current) return;
+    autoSyncStartedRef.current = true;
+
+    const youtube = platforms.find((platform) => platform.id === "youtube");
+    const hasSyncableCreator = youtube?.creators.some((creator) => getYouTubeChannelId(creator));
+    const lastSyncedAt = Date.parse(youtube?.lastSyncedAt || "");
+    const shouldSync = hasSyncableCreator && (!Number.isFinite(lastSyncedAt) || Date.now() - lastSyncedAt > AUTO_SYNC_INTERVAL_MS);
+
+    if (shouldSync) {
+      syncYouTubeFeeds({ silent: true });
+    }
+  }, []);
 
   function openHome() {
     setActiveTab("home");
@@ -309,6 +376,106 @@ export default function App() {
     );
   }
 
+  async function syncYouTubeFeeds(options = {}) {
+    const silent = options.silent === true;
+    const youtube = platforms.find((platform) => platform.id === "youtube");
+    const creators = youtube?.creators.filter((creator) => creator.selected !== false) || [];
+    const syncableCreators = creators
+      .map((creator) => ({ creator, channelId: getYouTubeChannelId(creator) }))
+      .filter(({ channelId }) => Boolean(channelId));
+
+    if (!youtube) return { addedCount: 0, failedCount: 0 };
+
+    if (!silent) {
+      setYouTubeSyncState({ status: "syncing", message: "同步中..." });
+    }
+
+    if (syncableCreators.length === 0) {
+      const syncedAt = new Date().toISOString();
+      updatePlatforms(platforms.map((platform) => (platform.id === "youtube" ? { ...platform, lastSyncedAt: syncedAt } : platform)));
+      if (!silent) {
+        setYouTubeSyncState({ status: "success", message: "暂无可同步频道" });
+      }
+      return { addedCount: 0, failedCount: 0 };
+    }
+
+    const results = await Promise.all(
+      syncableCreators.map(async ({ creator, channelId }) => {
+        try {
+          const response = await fetch(`/api/youtube-feed?channelId=${encodeURIComponent(channelId)}`);
+          const data = await response.json().catch(() => ({}));
+
+          if (!response.ok) {
+            throw new Error(data.error || "YouTube feed request failed");
+          }
+
+          return {
+            creatorId: creator.id,
+            videos: Array.isArray(data.videos) ? data.videos : [],
+            failed: false
+          };
+        } catch (error) {
+          console.warn("YouTube feed sync failed", creator.name, error);
+          return { creatorId: creator.id, videos: [], failed: true };
+        }
+      })
+    );
+
+    const resultMap = new Map(results.map((result) => [result.creatorId, result]));
+    let addedCount = 0;
+    const failedCount = results.filter((result) => result.failed).length;
+    const syncedAt = new Date().toISOString();
+
+    const nextPlatforms = platforms.map((platform) => {
+      if (platform.id !== "youtube") return platform;
+
+      return {
+        ...platform,
+        connected: platform.creators.length > 0,
+        lastSyncedAt: syncedAt,
+        lastSyncFailedCount: failedCount,
+        creators: platform.creators.map((creator) => {
+          const result = resultMap.get(creator.id);
+          if (!result || result.failed || result.videos.length === 0) return creator;
+
+          const existingKeys = new Set(
+            creator.updates.flatMap((update) => [update.id, normalizeExternalUrl(update.url)]).filter(Boolean)
+          );
+          const newUpdates = result.videos
+            .filter((video) => !existingKeys.has(video.id) && !existingKeys.has(normalizeExternalUrl(video.url)))
+            .map((video) =>
+              createUpdate(
+                video.id,
+                formatVideoTime(video.publishedAt || video.updatedAt),
+                video.title,
+                video.url,
+                false,
+                { source: "youtube-feed" }
+              )
+            );
+
+          addedCount += newUpdates.length;
+          return { ...creator, updates: [...newUpdates, ...creator.updates] };
+        })
+      };
+    });
+
+    updatePlatforms(nextPlatforms);
+
+    if (!silent) {
+      if (failedCount > 0 && addedCount === 0) {
+        setYouTubeSyncState({ status: "error", message: "同步失败，请稍后再试" });
+      } else {
+        setYouTubeSyncState({
+          status: "success",
+          message: addedCount > 0 ? `发现 ${addedCount} 条新更新` : "暂无新更新"
+        });
+      }
+    }
+
+    return { addedCount, failedCount };
+  }
+
   function addManualCreator(formData) {
     updatePlatforms(
       platforms.map((platform) => {
@@ -316,6 +483,10 @@ export default function App() {
 
         const creatorName = formData.creator.trim();
         const homepageUrl = normalizeExternalUrl(formData.homepageUrl);
+        const channelId = platform.id === "youtube" ? String(formData.channelId || "").trim() : "";
+        const sourceId = platform.id === "youtube" ? channelId : `manual-${Date.now()}`;
+        const creatorRecordId = channelId || `manual-${Date.now()}`;
+        const feedUrl = channelId ? getYouTubeFeedUrl(channelId) : "";
         const updateTitle = formData.title.trim();
         const updateUrl = formData.updateUrl.trim();
         const hasUpdate = updateTitle || updateUrl;
@@ -330,7 +501,10 @@ export default function App() {
             ]
           : [];
         const existingCreator = platform.creators.find(
-          (creator) => creator.homepageUrl === homepageUrl || creator.name === creatorName
+          (creator) =>
+            (channelId && creator.sourceId === channelId) ||
+            (homepageUrl && creator.homepageUrl === homepageUrl) ||
+            creator.name === creatorName
         );
 
         if (existingCreator) {
@@ -339,7 +513,14 @@ export default function App() {
             connected: true,
             creators: platform.creators.map((creator) =>
               creator.id === existingCreator.id
-                ? { ...creator, selected: true, homepageUrl, updates: [...updates, ...creator.updates] }
+                ? {
+                    ...creator,
+                    selected: true,
+                    homepageUrl,
+                    sourceId: channelId || creator.sourceId,
+                    feedUrl: feedUrl || creator.feedUrl,
+                    updates: [...updates, ...creator.updates]
+                  }
                 : creator
             )
           };
@@ -349,7 +530,10 @@ export default function App() {
           ...platform,
           connected: true,
           creators: [
-            createCreator(formData.platformId, creatorName, homepageUrl, `manual-${Date.now()}`, updates),
+            createCreator(formData.platformId, creatorName, homepageUrl, sourceId, updates, {
+              ...(feedUrl ? { feedUrl } : {}),
+              ...(platform.id === "youtube" && !channelId ? { id: `${formData.platformId}-${creatorRecordId}` } : {})
+            }),
             ...platform.creators
           ]
         };
@@ -487,7 +671,9 @@ export default function App() {
           />
         )}
 
-        {activeTab === "sync" && <SyncPage />}
+        {activeTab === "sync" && (
+          <SyncPage youtubePlatform={youtubePlatform} syncState={youtubeSyncState} onSync={() => syncYouTubeFeeds()} />
+        )}
         {activeTab === "settings" && <SettingsPage onExport={exportData} onImport={importData} onClear={clearData} />}
 
         <nav className="tab-bar">
@@ -645,7 +831,9 @@ function PlatformDetail({
             creator.unreadUpdates.map((update) => (
               <article className="detail-card" key={`${creator.id}-${update.id}`}>
                 <CreatorRow creator={creator} update={update} />
-                <button className="open-content" type="button" onClick={() => onOpenUpdate({ platform, creator, update })}>进入主页 →</button>
+                <button className="open-content" type="button" onClick={() => onOpenUpdate({ platform, creator, update })}>
+                  {platform.id === "youtube" ? "打开内容 →" : "进入主页 →"}
+                </button>
               </article>
             ))
           )}
@@ -770,10 +958,12 @@ function AddChoiceModal({ onClose, onChoose }) {
 
 function ManualAddModal({ platform, onClose, onAdd }) {
   const isRss = platform.id === "rss";
+  const isYouTube = platform.id === "youtube";
   const [form, setForm] = useState({
     platformId: platform.id,
     creator: "",
     homepageUrl: "",
+    channelId: "",
     title: "",
     updateUrl: "",
     time: getCurrentTime()
@@ -786,8 +976,8 @@ function ManualAddModal({ platform, onClose, onAdd }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if (!form.creator.trim() || !form.homepageUrl.trim()) {
-      alert(`请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
+    if (!form.creator.trim() || (!isYouTube && !form.homepageUrl.trim())) {
+      alert(isYouTube ? "请填写频道名称" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
 
@@ -795,6 +985,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
       platformId: form.platformId,
       creator: form.creator,
       homepageUrl: form.homepageUrl,
+      channelId: form.channelId,
       title: form.title,
       updateUrl: form.updateUrl,
       time: form.time || getCurrentTime()
@@ -818,6 +1009,14 @@ function ManualAddModal({ platform, onClose, onAdd }) {
           {getHomepageLabel(platform)}
           <input name="homepageUrl" value={form.homepageUrl} onChange={handleChange} placeholder="https://..." />
         </label>
+
+        {isYouTube && (
+          <label>
+            YouTube channelId，推荐填写
+            <input name="channelId" value={form.channelId} onChange={handleChange} placeholder="例如：UCVYamHliCI9rw1tHR1xbkfw" />
+            <span className="field-note">推荐填写 channelId。YouTube RSS 需要 channelId 才能稳定检测更新。</span>
+          </label>
+        )}
 
         {!isRss && (
           <>
@@ -864,12 +1063,23 @@ function SettingsPage({ onExport, onImport, onClear }) {
   );
 }
 
-function SyncPage() {
+function SyncPage({ youtubePlatform, syncState, onSync }) {
+  const channelCount = youtubePlatform?.creators.filter((creator) => creator.selected !== false).length || 0;
+  const isSyncing = syncState.status === "syncing";
+
   return (
     <section className="simple-page">
       <span className="blue-oval">同步</span>
-      <h2>同步中心开发中</h2>
-      <p>这里后续会集中显示账号连接状态、同步记录和手动刷新入口。</p>
+      <h2>同步中心</h2>
+      <section className="sync-card">
+        <h3>YouTube</h3>
+        <p>已添加 {channelCount} 个频道</p>
+        <p>上次同步：{formatSyncTime(youtubePlatform?.lastSyncedAt)}</p>
+        <button className="submit-button" type="button" onClick={onSync} disabled={isSyncing}>
+          {isSyncing ? "同步中..." : "立即同步 YouTube"}
+        </button>
+        {syncState.message && <p className="sync-message">{syncState.message}</p>}
+      </section>
     </section>
   );
 }

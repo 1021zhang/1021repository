@@ -611,6 +611,13 @@ select:focus {
   background: #ffffff;
 }
 
+.field-note {
+  color: var(--gray);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .import-button input {
   display: none;
 }
@@ -626,6 +633,29 @@ select:focus {
 .settings-actions .danger-button {
   border-color: #f0b9b9;
   color: #c53a3a;
+}
+
+.sync-card {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.sync-card h3 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.sync-message {
+  margin-top: 12px;
+  color: var(--blue-dark);
+  font-weight: 900;
+}
+
+.submit-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
 }
 
 .settings-actions button,
