@@ -38,7 +38,7 @@ function createUpdate(id, time, title, url, read = false, extra = {}) {
 function normalizePlatforms(platforms) {
   const platformMap = new Map(Array.isArray(platforms) ? platforms.map((platform) => [platform.id, platform]) : []);
 
-  return initialPlatforms.map((defaultPlatform) => {
+  const normalizedPlatforms = initialPlatforms.map((defaultPlatform) => {
     const savedPlatform = platformMap.get(defaultPlatform.id);
     if (!savedPlatform) return defaultPlatform;
 
@@ -48,6 +48,8 @@ function normalizePlatforms(platforms) {
       creators: normalizeCreators(savedPlatform)
     };
   });
+
+  return cleanupAllPlatforms(normalizedPlatforms);
 }
 
 function normalizeCreators(platform) {
@@ -84,12 +86,59 @@ function normalizeCreators(platform) {
   );
 }
 
+function getUpdateSortTime(update) {
+  const candidates = [update.publishedAt, update.updatedAt, update.createdAt, update.time];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const timestamp = Date.parse(candidate);
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+
+  return null;
+}
+
+function sortUpdatesByRecency(updates) {
+  return updates
+    .map((update, index) => ({ update, index, timestamp: getUpdateSortTime(update) }))
+    .sort((first, second) => {
+      if (first.timestamp !== null && second.timestamp !== null) return second.timestamp - first.timestamp;
+      return first.index - second.index;
+    })
+    .map(({ update }) => update);
+}
+
+function cleanupCreatorUpdates(creator) {
+  const updates = Array.isArray(creator.updates) ? creator.updates : [];
+  const unreadUpdates = sortUpdatesByRecency(updates.filter((update) => !update.read));
+  const readUpdates = updates.filter((update) => update.read);
+  const latestUnread = unreadUpdates[0];
+  const extraUnreadAsRead = unreadUpdates.slice(1).map((update) => ({ ...update, read: true }));
+  const latestReadUpdates = sortUpdatesByRecency([...extraUnreadAsRead, ...readUpdates]).slice(0, 5);
+
+  return {
+    ...creator,
+    updates: latestUnread ? [latestUnread, ...latestReadUpdates] : latestReadUpdates
+  };
+}
+
+function cleanupAllPlatforms(platforms) {
+  return platforms.map((platform) => ({
+    ...platform,
+    creators: Array.isArray(platform.creators) ? platform.creators.map(cleanupCreatorUpdates) : []
+  }));
+}
+
 function loadPlatforms() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? normalizePlatforms(JSON.parse(saved)) : initialPlatforms;
+    if (!saved) return normalizePlatforms(initialPlatforms);
+
+    const normalizedPlatforms = normalizePlatforms(JSON.parse(saved));
+    savePlatforms(normalizedPlatforms);
+    return normalizedPlatforms;
   } catch {
-    return initialPlatforms;
+    return normalizePlatforms(initialPlatforms);
   }
 }
 
@@ -635,7 +684,12 @@ export default function App() {
             latestVideo.title,
             latestVideo.url,
             false,
-            { source: "youtube-feed" }
+            {
+              source: "youtube-feed",
+              publishedAt: latestVideo.publishedAt || "",
+              updatedAt: latestVideo.updatedAt || "",
+              createdAt: new Date().toISOString()
+            }
           );
           const readExistingUpdates = creator.updates.map((update) => (update.read ? update : { ...update, read: true }));
 
