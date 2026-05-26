@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "follow_blue_oval_app_v1";
-const HOME_PLATFORM_IDS = ["youtube", "xiaohongshu", "weibo", "instagram"];
+const AUTO_YOUTUBE_SYNC_STORAGE_KEY = "follow_last_auto_youtube_sync_at";
+const PLATFORM_ORDER_STORAGE_KEY = "follow_platform_order";
+const HOME_PLATFORM_IDS = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram"];
+const DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
 const YOUTUBE_FEED_BASE_URL = "https://www.youtube.com/feeds/videos.xml?channel_id=";
 const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
 const initialPlatforms = [
   { id: "youtube", name: "YouTube", syncType: "manual", homepageUrl: "https://www.youtube.com", connected: false, creators: [] },
+  { id: "bilibili", name: "B站", syncType: "manual", homepageUrl: "https://www.bilibili.com", connected: false, creators: [] },
   { id: "xiaohongshu", name: "小红书", syncType: "manual", homepageUrl: "https://www.xiaohongshu.com", connected: false, creators: [] },
   { id: "weibo", name: "微博", syncType: "manual", homepageUrl: "https://weibo.com", connected: false, creators: [] },
   { id: "instagram", name: "Instagram", syncType: "manual", homepageUrl: "https://www.instagram.com", connected: false, creators: [] },
@@ -146,6 +150,45 @@ function savePlatforms(platforms) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(platforms));
 }
 
+function readLastAutoYouTubeSyncAt() {
+  try {
+    return localStorage.getItem(AUTO_YOUTUBE_SYNC_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveLastAutoYouTubeSyncAt(value) {
+  try {
+    localStorage.setItem(AUTO_YOUTUBE_SYNC_STORAGE_KEY, value);
+  } catch {
+    // Ignore storage failures; sync should still run.
+  }
+}
+
+function normalizePlatformOrder(order, platforms = initialPlatforms) {
+  const platformIds = platforms.map((platform) => platform.id);
+  const orderedIds = Array.isArray(order) ? order.filter((platformId) => platformIds.includes(platformId)) : [];
+  return [...orderedIds, ...platformIds.filter((platformId) => !orderedIds.includes(platformId))];
+}
+
+function readPlatformOrder() {
+  try {
+    const saved = localStorage.getItem(PLATFORM_ORDER_STORAGE_KEY);
+    return normalizePlatformOrder(saved ? JSON.parse(saved) : DEFAULT_PLATFORM_ORDER);
+  } catch {
+    return normalizePlatformOrder(DEFAULT_PLATFORM_ORDER);
+  }
+}
+
+function savePlatformOrder(order) {
+  try {
+    localStorage.setItem(PLATFORM_ORDER_STORAGE_KEY, JSON.stringify(normalizePlatformOrder(order)));
+  } catch {
+    // Ignore storage failures; visual order can fall back to defaults.
+  }
+}
+
 function normalizeExternalUrl(url) {
   if (!url) return "";
   const trimmedUrl = String(url).trim();
@@ -161,6 +204,14 @@ function normalizeExternalUrl(url) {
   }
   if (lowerUrl.startsWith("http://") || lowerUrl.startsWith("https://")) return trimmedUrl;
   return `https://${trimmedUrl}`;
+}
+
+function normalizeBilibiliHomepage(input) {
+  if (!input) return "";
+  const trimmedInput = String(input).trim();
+  if (!trimmedInput) return "";
+  if (/^\d+$/.test(trimmedInput)) return `https://space.bilibili.com/${trimmedInput}`;
+  return normalizeExternalUrl(trimmedInput);
 }
 
 function isMockOrEmptyUrl(url) {
@@ -191,6 +242,16 @@ function formatSyncTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "尚未同步";
   return `${date.toLocaleDateString("zh-CN")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function getAutoYouTubeSyncText(value) {
+  const lastAutoSyncedAt = Date.parse(value || "");
+  if (!Number.isFinite(lastAutoSyncedAt)) return "自动同步：30 分钟内不重复检查";
+
+  const remainingMs = AUTO_SYNC_INTERVAL_MS - (Date.now() - lastAutoSyncedAt);
+  if (remainingMs <= 0) return "自动同步：下次打开时会检查";
+
+  return `下次自动同步：约 ${Math.ceil(remainingMs / 60000)} 分钟后`;
 }
 
 function formatVideoTime(value) {
@@ -338,6 +399,7 @@ function getStatusText(platform, unreadCreators) {
 
 function getActionText(platform) {
   if (platform.id === "youtube") return "添加 YouTube 频道";
+  if (platform.id === "bilibili") return "添加 B站 UP 主";
   if (platform.id === "xiaohongshu") return "添加小红书博主";
   if (platform.id === "weibo") return "添加微博博主";
   if (platform.id === "instagram") return "添加 Instagram 博主";
@@ -346,28 +408,35 @@ function getActionText(platform) {
 
 function getConnectedNote(platform) {
   if (platform.id === "rss") return "等待下一次同步";
+  if (platform.id === "bilibili") return "手动添加链接 / 后续尝试同步";
   return "等待下一次更新";
 }
 
 function getPlatformSupplementText(platform, creatorCount) {
+  if (platform.id === "bilibili") return "手动添加链接 / 后续尝试同步";
   if (creatorCount > 0) return getConnectedNote(platform);
   if (platform.id === "youtube") return "先添加频道，有更新会显示在这里";
   return "先添加博主，有更新会显示在这里";
 }
 
-function getHomePlatforms(platforms) {
-  return HOME_PLATFORM_IDS.map((platformId) => platforms.find((platform) => platform.id === platformId)).filter(Boolean);
+function getHomePlatforms(platforms, platformOrder) {
+  return normalizePlatformOrder(platformOrder, platforms)
+    .filter((platformId) => HOME_PLATFORM_IDS.includes(platformId))
+    .map((platformId) => platforms.find((platform) => platform.id === platformId))
+    .filter(Boolean);
 }
 
 function getManualModalTitle(platform) {
   if (platform.id === "rss") return "添加 RSS 订阅源";
   if (platform.id === "youtube") return "添加 YouTube 频道";
+  if (platform.id === "bilibili") return "添加 B站 UP 主";
   return `添加 ${platform.name} 博主`;
 }
 
 function getHomepageLabel(platform) {
   if (platform.id === "rss") return "RSS 链接";
   if (platform.id === "youtube") return "YouTube 频道主页链接，可选";
+  if (platform.id === "bilibili") return "B站主页链接或 UID";
   if (platform.id === "instagram") return "Instagram 主页链接";
   return "主页链接";
 }
@@ -375,12 +444,14 @@ function getHomepageLabel(platform) {
 function getCreatorLabel(platform) {
   if (platform.id === "rss") return "订阅源名称";
   if (platform.id === "youtube") return "频道名";
+  if (platform.id === "bilibili") return "UP 主名";
   return "博主名";
 }
 
 function getCreatorPlaceholder(platform) {
   if (platform.id === "rss") return "例如：Design Feed";
   if (platform.id === "youtube") return "例如：MKBHD";
+  if (platform.id === "bilibili") return "例如：影视飓风";
   if (platform.id === "instagram") return "例如：design";
   return "例如：瑞英";
 }
@@ -393,6 +464,8 @@ export default function App() {
   const [showAddChoice, setShowAddChoice] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
   const [youtubeSyncState, setYouTubeSyncState] = useState({ status: "idle", message: "", debugInfo: null });
+  const [lastAutoYouTubeSyncAt, setLastAutoYouTubeSyncAt] = useState(readLastAutoYouTubeSyncAt);
+  const [platformOrder, setPlatformOrder] = useState(() => normalizePlatformOrder(readPlatformOrder(), platforms));
   const autoSyncStartedRef = useRef(false);
 
   const activePlatform = platforms.find((platform) => platform.id === activePlatformId);
@@ -404,7 +477,33 @@ export default function App() {
   function updatePlatforms(nextPlatforms) {
     const normalizedPlatforms = normalizePlatforms(nextPlatforms);
     setPlatforms(normalizedPlatforms);
+    setPlatformOrder((currentOrder) => normalizePlatformOrder(currentOrder, normalizedPlatforms));
     savePlatforms(normalizedPlatforms);
+  }
+
+  function updatePlatformOrder(nextOrder) {
+    const normalizedOrder = normalizePlatformOrder(nextOrder, platforms);
+    setPlatformOrder(normalizedOrder);
+    savePlatformOrder(normalizedOrder);
+  }
+
+  function movePlatformOrder(platformId, direction) {
+    const currentOrder = normalizePlatformOrder(platformOrder, platforms);
+    const currentIndex = currentOrder.indexOf(platformId);
+    const nextIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentOrder.length) return;
+
+    const nextOrder = [...currentOrder];
+    [nextOrder[currentIndex], nextOrder[nextIndex]] = [nextOrder[nextIndex], nextOrder[currentIndex]];
+    updatePlatformOrder(nextOrder);
+  }
+
+  function recordYouTubeSyncAttempt() {
+    const syncedAt = new Date().toISOString();
+    saveLastAutoYouTubeSyncAt(syncedAt);
+    setLastAutoYouTubeSyncAt(syncedAt);
+    return syncedAt;
   }
 
   useEffect(() => {
@@ -412,12 +511,13 @@ export default function App() {
     autoSyncStartedRef.current = true;
 
     const youtube = platforms.find((platform) => platform.id === "youtube");
-    const hasSyncableCreator = youtube?.creators.some((creator) => getYouTubeChannelId(creator));
-    const lastSyncedAt = Date.parse(youtube?.lastSyncedAt || "");
-    const shouldSync = hasSyncableCreator && (!Number.isFinite(lastSyncedAt) || Date.now() - lastSyncedAt > AUTO_SYNC_INTERVAL_MS);
+    const hasSyncableCreator = youtube?.creators.some((creator) => getYouTubeCreatorSyncTarget(creator));
+    const lastAutoSyncedAt = Date.parse(readLastAutoYouTubeSyncAt());
+    const shouldSync =
+      hasSyncableCreator && (!Number.isFinite(lastAutoSyncedAt) || Date.now() - lastAutoSyncedAt > AUTO_SYNC_INTERVAL_MS);
 
     if (shouldSync) {
-      syncYouTubeFeeds({ silent: true });
+      syncYouTubeFeeds({ automatic: true });
     }
   }, []);
 
@@ -528,6 +628,8 @@ export default function App() {
             const homepageUrl =
               platform.id === "youtube"
                 ? youtubeInfo.homepageUrl
+                : platform.id === "bilibili"
+                  ? normalizeBilibiliHomepage(formData.homepageUrl)
                 : normalizeExternalUrl(formData.homepageUrl);
 
             return {
@@ -549,6 +651,7 @@ export default function App() {
 
   async function syncYouTubeFeeds(options = {}) {
     const silent = options.silent === true;
+    const automatic = options.automatic === true;
     const youtube = platforms.find((platform) => platform.id === "youtube");
     const creators = youtube?.creators.filter((creator) => creator.selected !== false) || [];
     const syncTargets = creators
@@ -558,8 +661,10 @@ export default function App() {
 
     if (!youtube) return { addedCount: 0, failedCount: 0 };
 
+    recordYouTubeSyncAttempt();
+
     if (!silent) {
-      setYouTubeSyncState({ status: "syncing", message: "同步中...", debugInfo: null });
+      setYouTubeSyncState({ status: "syncing", message: automatic ? "自动同步中..." : "同步中...", debugInfo: null });
     }
 
     if (syncTargets.length === 0) {
@@ -758,13 +863,15 @@ export default function App() {
         const homepageUrl =
           platform.id === "youtube"
             ? youtubeInfo.homepageUrl
+            : platform.id === "bilibili"
+              ? normalizeBilibiliHomepage(formData.homepageUrl)
             : normalizeExternalUrl(formData.homepageUrl);
         const sourceId = platform.id === "youtube" ? channelId : `manual-${Date.now()}`;
         const creatorRecordId = channelId || `manual-${Date.now()}`;
         const feedUrl = youtubeInfo?.feedUrl || "";
         const updateTitle = formData.title.trim();
         const updateUrl = formData.updateUrl.trim();
-        const hasUpdate = platform.id !== "youtube" && (updateTitle || updateUrl);
+        const hasUpdate = platform.id !== "youtube" && platform.id !== "bilibili" && (updateTitle || updateUrl);
         const updates = hasUpdate
           ? [
               createUpdate(
@@ -845,6 +952,7 @@ export default function App() {
 
   function resetDemo() {
     updatePlatforms(initialPlatforms);
+    updatePlatformOrder(DEFAULT_PLATFORM_ORDER);
     setActivePlatformId(null);
     setManualPlatformId(null);
     setShowAddChoice(false);
@@ -902,7 +1010,9 @@ export default function App() {
   function clearData() {
     if (!window.confirm("确定清空 follow 数据并恢复初始状态吗？")) return;
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(PLATFORM_ORDER_STORAGE_KEY);
     setPlatforms(initialPlatforms);
+    setPlatformOrder(normalizePlatformOrder(DEFAULT_PLATFORM_ORDER));
     openHome();
   }
 
@@ -943,6 +1053,7 @@ export default function App() {
         {!activePlatform && activeTab === "home" && (
           <HomePage
             platforms={platforms}
+            platformOrder={platformOrder}
             onConnect={openPlatformAction}
             onReset={resetDemo}
             onViewAll={(platformId) => setActivePlatformId(platformId)}
@@ -950,9 +1061,23 @@ export default function App() {
         )}
 
         {activeTab === "sync" && (
-          <SyncPage youtubePlatform={youtubePlatform} syncState={youtubeSyncState} onSync={() => syncYouTubeFeeds()} />
+          <SyncPage
+            youtubePlatform={youtubePlatform}
+            syncState={youtubeSyncState}
+            lastAutoYouTubeSyncAt={lastAutoYouTubeSyncAt}
+            onSync={() => syncYouTubeFeeds()}
+          />
         )}
-        {activeTab === "settings" && <SettingsPage onExport={exportData} onImport={importData} onClear={clearData} />}
+        {activeTab === "settings" && (
+          <SettingsPage
+            platforms={platforms}
+            platformOrder={platformOrder}
+            onMovePlatform={movePlatformOrder}
+            onExport={exportData}
+            onImport={importData}
+            onClear={clearData}
+          />
+        )}
 
         <nav className="tab-bar">
           <button className={`tab ${activeTab === "home" ? "active" : ""}`} type="button" onClick={openHome}>
@@ -1004,8 +1129,8 @@ export default function App() {
   );
 }
 
-function HomePage({ platforms, onConnect, onReset, onViewAll }) {
-  const homePlatforms = getHomePlatforms(platforms);
+function HomePage({ platforms, platformOrder, onConnect, onReset, onViewAll }) {
+  const homePlatforms = getHomePlatforms(platforms, platformOrder);
 
   return (
     <section className="overview">
@@ -1232,6 +1357,7 @@ function TabIcon({ name }) {
 function AddChoiceModal({ onClose, onChoose }) {
   const options = [
     { id: "youtube", label: "添加 YouTube 频道" },
+    { id: "bilibili", label: "添加 B站 UP 主" },
     { id: "xiaohongshu", label: "添加小红书博主" },
     { id: "weibo", label: "添加微博博主" },
     { id: "instagram", label: "添加 Instagram 博主" },
@@ -1258,6 +1384,7 @@ function AddChoiceModal({ onClose, onChoose }) {
 function ManualAddModal({ platform, onClose, onAdd }) {
   const isRss = platform.id === "rss";
   const isYouTube = platform.id === "youtube";
+  const isBilibili = platform.id === "bilibili";
   const [form, setForm] = useState({
     platformId: platform.id,
     creator: "",
@@ -1313,16 +1440,21 @@ function ManualAddModal({ platform, onClose, onAdd }) {
             name="homepageUrl"
             value={form.homepageUrl}
             onChange={handleChange}
-            placeholder={isYouTube ? "https://www.youtube.com/@casey" : "https://..."}
+            placeholder={isYouTube ? "https://www.youtube.com/@casey" : isBilibili ? "https://space.bilibili.com/123456" : "https://..."}
           />
           {isYouTube && (
             <span className="field-note">
               粘贴 YouTube 频道主页即可，支持 @handle 或 /channel/UC... 链接。系统会自动识别用于同步的频道 ID。
             </span>
           )}
+          {isBilibili && (
+            <span className="field-note">
+              先手动添加 B站 UP 主主页，后续再尝试自动同步最新投稿。
+            </span>
+          )}
         </label>
 
-        {!isRss && !isYouTube && (
+        {!isRss && !isYouTube && !isBilibili && (
           <>
             <label>
               最新内容标题，可选
@@ -1347,6 +1479,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
 
 function EditCreatorModal({ platform, creator, onClose, onSave }) {
   const isYouTube = platform.id === "youtube";
+  const isBilibili = platform.id === "bilibili";
   const [form, setForm] = useState({
     creator: creator.name || "",
     homepageUrl: creator.homepageUrl || ""
@@ -1360,7 +1493,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
   function handleSubmit(event) {
     event.preventDefault();
     if (!form.creator.trim() || !form.homepageUrl.trim()) {
-      alert(isYouTube ? "请填写频道名和 YouTube 频道链接" : "请填写博主名和主页链接");
+      alert(isYouTube ? "请填写频道名和 YouTube 频道链接" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
 
@@ -1376,18 +1509,23 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
         </div>
 
         <label>
-          {isYouTube ? "频道名" : "博主名"}
+          {isYouTube ? "频道名" : getCreatorLabel(platform)}
           <input name="creator" value={form.creator} onChange={handleChange} />
         </label>
 
         <label>
-          {isYouTube ? "YouTube 频道链接" : "主页链接"}
+          {isYouTube ? "YouTube 频道链接" : getHomepageLabel(platform)}
           <input
             name="homepageUrl"
             value={form.homepageUrl}
             onChange={handleChange}
-            placeholder={isYouTube ? "https://www.youtube.com/@casey" : "https://..."}
+            placeholder={isYouTube ? "https://www.youtube.com/@casey" : isBilibili ? "https://space.bilibili.com/123456" : "https://..."}
           />
+          {isBilibili && (
+            <span className="field-note">
+              先手动添加 B站 UP 主主页，后续再尝试自动同步最新投稿。
+            </span>
+          )}
         </label>
 
         <button className="submit-button" type="submit">保存修改</button>
@@ -1396,10 +1534,33 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
   );
 }
 
-function SettingsPage({ onExport, onImport, onClear }) {
+function SettingsPage({ platforms, platformOrder, onMovePlatform, onExport, onImport, onClear }) {
+  const orderedPlatforms = normalizePlatformOrder(platformOrder, platforms)
+    .map((platformId) => platforms.find((platform) => platform.id === platformId))
+    .filter(Boolean);
+
   return (
     <section className="settings-page">
       <div className="settings-title"><span className="blue-oval">设置</span></div>
+      <section className="settings-card">
+        <h2>平台顺序</h2>
+        <p>调整首页平台显示顺序</p>
+        <div className="platform-order-list">
+          {orderedPlatforms.map((platform, index) => (
+            <div className="platform-order-item" key={platform.id}>
+              <strong>{platform.name}</strong>
+              <div>
+                <button type="button" onClick={() => onMovePlatform(platform.id, -1)} disabled={index === 0}>
+                  上移
+                </button>
+                <button type="button" onClick={() => onMovePlatform(platform.id, 1)} disabled={index === orderedPlatforms.length - 1}>
+                  下移
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
       <section className="settings-card">
         <h2>数据管理</h2>
         <div className="settings-actions">
@@ -1418,9 +1579,10 @@ function SettingsPage({ onExport, onImport, onClear }) {
   );
 }
 
-function SyncPage({ youtubePlatform, syncState, onSync }) {
+function SyncPage({ youtubePlatform, syncState, lastAutoYouTubeSyncAt, onSync }) {
   const channelCount = youtubePlatform?.creators.filter((creator) => creator.selected !== false).length || 0;
   const isSyncing = syncState.status === "syncing";
+  const autoSyncText = getAutoYouTubeSyncText(lastAutoYouTubeSyncAt);
   const debugInfo = syncState.debugInfo;
   const debugItems = debugInfo
     ? [
@@ -1444,6 +1606,7 @@ function SyncPage({ youtubePlatform, syncState, onSync }) {
         <h3>YouTube</h3>
         <p>已添加 {channelCount} 个频道</p>
         <p>上次同步：{formatSyncTime(youtubePlatform?.lastSyncedAt)}</p>
+        <p>{autoSyncText}</p>
         <button className="submit-button" type="button" onClick={onSync} disabled={isSyncing}>
           {isSyncing ? "同步中..." : "立即同步 YouTube"}
         </button>

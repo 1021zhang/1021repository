@@ -141,6 +141,7 @@ button {
 .creator-list,
 .detail-list,
 .settings-actions,
+.platform-order-list,
 .add-choice-list,
 .channel-list,
 .connect-steps {
@@ -643,6 +644,50 @@ select:focus {
 .settings-actions .danger-button {
   border-color: #f0b9b9;
   color: #c53a3a;
+}
+
+.platform-order-list {
+  margin-top: 14px;
+}
+
+.platform-order-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.platform-order-item:last-child {
+  border-bottom: 0;
+}
+
+.platform-order-item strong {
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.platform-order-item div {
+  display: flex;
+  gap: 8px;
+}
+
+.platform-order-item button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1.5px solid var(--blue);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--blue-dark);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.platform-order-item button:disabled {
+  border-color: #e4e4e4;
+  color: #b6b6b6;
+  cursor: not-allowed;
 }
 
 .sync-card {
