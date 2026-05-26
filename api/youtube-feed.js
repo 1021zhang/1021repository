@@ -107,14 +107,48 @@ function extractChannelIdFromText(text = "") {
   return "";
 }
 
-async function resolveChannelId({ channelId, url, handle }) {
+function cleanChannelTitle(value = "") {
+  return decodeXml(value)
+    .replace(/\\"/g, '"')
+    .replace(/\\u0026/g, "&")
+    .replace(/\\\//g, "/")
+    .replace(/\s+-\s+YouTube$/i, "")
+    .trim();
+}
+
+function extractChannelTitleFromText(text = "") {
+  const patterns = [
+    /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["'][^>]*>/i,
+    /<meta[^>]+name=["']title["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']title["'][^>]*>/i,
+    /"ownerChannelName"\s*:\s*"([^"]+)"/,
+    /\\"ownerChannelName\\"\s*:\s*\\"([^"]+?)\\"/,
+    /"channelMetadataRenderer"\s*:\s*\{[\s\S]*?"title"\s*:\s*"([^"]+)"/,
+    /\\"channelMetadataRenderer\\"\s*:\s*\{[\s\S]*?\\"title\\"\s*:\s*\\"([^"]+?)\\"/,
+    /"title"\s*:\s*"([^"]+)"/
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const title = cleanChannelTitle(match[1]);
+      if (title) return title;
+    }
+  }
+
+  return "";
+}
+
+async function resolveChannelInfo({ channelId, url, handle }) {
   const normalizedChannelId = normalizeChannelId(channelId);
-  if (normalizedChannelId) return normalizedChannelId;
+  if (normalizedChannelId) return { channelId: normalizedChannelId, channelTitle: "" };
 
   const handleName = handle ? String(handle).replace(/^@/, "").trim() : "";
   const normalizedUrl = normalizePageUrl(url);
   const handleUrl = handleName ? `https://www.youtube.com/@${handleName}` : "";
   const pageUrls = uniqueValues([handleUrl, appendAboutUrl(handleUrl), normalizedUrl, appendAboutUrl(normalizedUrl)]);
+  let channelTitle = "";
 
   for (const pageUrl of pageUrls) {
     try {
@@ -123,14 +157,15 @@ async function resolveChannelId({ channelId, url, handle }) {
 
       if (!pageResponse.ok) continue;
 
+      channelTitle = channelTitle || extractChannelTitleFromText(html);
       const resolvedChannelId = extractChannelIdFromText(html);
-      if (resolvedChannelId) return resolvedChannelId;
+      if (resolvedChannelId) return { channelId: resolvedChannelId, channelTitle };
     } catch {
       // Try the next candidate URL.
     }
   }
 
-  return "";
+  return { channelId: "", channelTitle };
 }
 
 export default async function handler(request, response) {
@@ -149,12 +184,15 @@ export default async function handler(request, response) {
   }
 
   try {
-    const resolvedChannelId = await resolveChannelId({ channelId, url, handle });
+    const resolvedInfo = await resolveChannelInfo({ channelId, url, handle });
+    const resolvedChannelId = resolvedInfo.channelId;
+    let channelTitle = resolvedInfo.channelTitle;
 
     if (!resolvedChannelId) {
       response.status(400).json({
         channelId: channelId || "",
         resolvedChannelId: "",
+        channelTitle,
         error: "channel_id_not_resolved",
         message: "无法从这个 YouTube 频道链接识别 channelId，请尝试在 YouTube 频道页点击“分享频道 → 复制频道 ID”。",
         input,
@@ -166,11 +204,15 @@ export default async function handler(request, response) {
     feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(resolvedChannelId)}`;
     const feedResponse = await fetch(feedUrl, { headers: YOUTUBE_FEED_HEADERS });
     const xml = await feedResponse.text();
+    if (feedResponse.ok) {
+      channelTitle = channelTitle || cleanChannelTitle(readTag(xml, "title"));
+    }
 
     if (!feedResponse.ok) {
       response.status(feedResponse.status).json({
         channelId: channelId || "",
         resolvedChannelId,
+        channelTitle,
         error: "feed_fetch_failed",
         message: "YouTube feed 请求失败",
         feedUrl,
@@ -189,6 +231,7 @@ export default async function handler(request, response) {
         message: "YouTube feed 返回内容异常",
         channelId: resolvedChannelId,
         resolvedChannelId,
+        channelTitle,
         feedUrl,
         status: feedResponse.status,
         statusText: feedResponse.statusText,
@@ -206,6 +249,7 @@ export default async function handler(request, response) {
         message: "YouTube feed 已读取，但没有解析到视频",
         channelId: resolvedChannelId,
         resolvedChannelId,
+        channelTitle,
         feedUrl,
         status: feedResponse.status,
         statusText: feedResponse.statusText,
@@ -217,6 +261,7 @@ export default async function handler(request, response) {
     response.status(200).json({
       channelId: channelId || resolvedChannelId,
       resolvedChannelId,
+      channelTitle,
       feedUrl,
       videos
     });

@@ -347,6 +347,117 @@ function getYouTubeCreatorSyncTarget(creator) {
   return null;
 }
 
+function inferLocalCreatorName(platform, input) {
+  const trimmedInput = String(input || "").trim();
+  if (!trimmedInput) return "";
+
+  if (platform.id === "youtube") {
+    const youtubeInfo = resolveYouTubeChannelInfo(trimmedInput);
+    return youtubeInfo.handle || youtubeInfo.sourceId || "";
+  }
+
+  if (platform.id === "bilibili") {
+    const uidMatch = trimmedInput.match(/space\.bilibili\.com\/(\d+)/i) || trimmedInput.match(/^(\d+)$/);
+    return uidMatch ? `B站用户 ${uidMatch[1]}` : "";
+  }
+
+  const normalizedUrl = normalizeExternalUrl(trimmedInput);
+
+  try {
+    const parsedUrl = new URL(normalizedUrl);
+    const pathParts = parsedUrl.pathname.split("/").filter(Boolean);
+
+    if (platform.id === "instagram") {
+      const username = pathParts[0];
+      return username && !["p", "reel", "stories", "explore"].includes(username) ? username : "";
+    }
+
+    if (platform.id === "weibo") {
+      if (pathParts[0] === "u" && pathParts[1]) return pathParts[1];
+      return pathParts[0] || "";
+    }
+
+    if (platform.id === "xiaohongshu") {
+      const profileIndex = pathParts.findIndex((part) => part === "profile" || part === "user");
+      const userId = profileIndex >= 0 ? pathParts[profileIndex + 1] : pathParts[pathParts.length - 1];
+      return userId ? `小红书用户 ${userId}` : "小红书用户";
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+function getYouTubeLookupQuery(input) {
+  const youtubeInfo = resolveYouTubeChannelInfo(input);
+  if (youtubeInfo.sourceId) return `channelId=${encodeURIComponent(youtubeInfo.sourceId)}`;
+  if (youtubeInfo.handle) return `handle=${encodeURIComponent(youtubeInfo.handle)}`;
+  return `url=${encodeURIComponent(input)}`;
+}
+
+function useAutoCreatorName(platform, form, setForm) {
+  const [nameStatus, setNameStatus] = useState("");
+
+  useEffect(() => {
+    const homepageUrl = form.homepageUrl.trim();
+    if (!homepageUrl || form.creator.trim() || platform.id === "rss") {
+      setNameStatus("");
+      return undefined;
+    }
+
+    if (platform.id !== "youtube") {
+      const inferredName = inferLocalCreatorName(platform, homepageUrl);
+      if (inferredName) {
+        setForm((current) =>
+          current.creator.trim() || current.homepageUrl.trim() !== homepageUrl ? current : { ...current, creator: inferredName }
+        );
+      }
+      setNameStatus("");
+      return undefined;
+    }
+
+    let isCancelled = false;
+    setNameStatus("正在识别频道名...");
+
+    const timerId = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/youtube-feed?${getYouTubeLookupQuery(homepageUrl)}`);
+        const data = await response.json().catch(() => ({}));
+        const inferredName = String(data.channelTitle || inferLocalCreatorName(platform, homepageUrl) || "").trim();
+
+        if (isCancelled) return;
+
+        if (inferredName) {
+          setForm((current) =>
+            current.creator.trim() || current.homepageUrl.trim() !== homepageUrl ? current : { ...current, creator: inferredName }
+          );
+          setNameStatus(data.channelTitle ? "已识别频道名" : "无法自动识别，可手动填写");
+        } else {
+          setNameStatus("无法自动识别，可手动填写");
+        }
+      } catch {
+        const inferredName = inferLocalCreatorName(platform, homepageUrl);
+        if (isCancelled) return;
+
+        if (inferredName) {
+          setForm((current) =>
+            current.creator.trim() || current.homepageUrl.trim() !== homepageUrl ? current : { ...current, creator: inferredName }
+          );
+        }
+        setNameStatus("无法自动识别，可手动填写");
+      }
+    }, 450);
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, [platform.id, form.creator, form.homepageUrl, setForm]);
+
+  return nameStatus;
+}
+
 function getYouTubeSyncErrorMessage(errorCode) {
   const messages = {
     missing_input: "同步失败：缺少 YouTube 频道链接或 channelId",
@@ -622,8 +733,10 @@ export default function App() {
           creators: platform.creators.map((creator) => {
             if (creator.id !== creatorId) return creator;
 
-            const creatorName = formData.creator.trim();
             const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(formData.homepageUrl) : null;
+            const creatorName =
+              formData.creator.trim() ||
+              (platform.id === "youtube" ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道" : "");
             const channelId = youtubeInfo?.sourceId || "";
             const homepageUrl =
               platform.id === "youtube"
@@ -1393,6 +1506,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
     updateUrl: "",
     time: getCurrentTime()
   });
+  const nameStatus = useAutoCreatorName(platform, form, setForm);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -1447,6 +1561,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
               粘贴 YouTube 频道主页即可，支持 @handle 或 /channel/UC... 链接。系统会自动识别用于同步的频道 ID。
             </span>
           )}
+          {isYouTube && nameStatus && <span className="field-note">{nameStatus}</span>}
           {isBilibili && (
             <span className="field-note">
               先手动添加 B站 UP 主主页，后续再尝试自动同步最新投稿。
@@ -1484,6 +1599,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
     creator: creator.name || "",
     homepageUrl: creator.homepageUrl || ""
   });
+  const nameStatus = useAutoCreatorName(platform, form, setForm);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -1492,7 +1608,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if (!form.creator.trim() || !form.homepageUrl.trim()) {
+    if ((!isYouTube && !form.creator.trim()) || !form.homepageUrl.trim()) {
       alert(isYouTube ? "请填写频道名和 YouTube 频道链接" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
@@ -1521,6 +1637,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
             onChange={handleChange}
             placeholder={isYouTube ? "https://www.youtube.com/@casey" : isBilibili ? "https://space.bilibili.com/123456" : "https://..."}
           />
+          {isYouTube && nameStatus && <span className="field-note">{nameStatus}</span>}
           {isBilibili && (
             <span className="field-note">
               先手动添加 B站 UP 主主页，后续再尝试自动同步最新投稿。
