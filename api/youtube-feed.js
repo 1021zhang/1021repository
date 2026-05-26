@@ -41,6 +41,12 @@ const YOUTUBE_FEED_HEADERS = {
   "Accept-Language": "en-US,en;q=0.9"
 };
 
+const YOUTUBE_PAGE_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; follow-rss-checker/0.1)",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9"
+};
+
 function firstQueryValue(value) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -54,13 +60,43 @@ function normalizePageUrl(url) {
   return `https://${trimmedUrl}`;
 }
 
+function appendAboutUrl(url) {
+  if (!url) return "";
+  const cleanUrl = url.split("#")[0].split("?")[0].replace(/\/$/, "");
+  if (/\/about$/i.test(cleanUrl)) return cleanUrl;
+  return `${cleanUrl}/about`;
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function normalizeChannelId(input = "") {
+  const trimmedInput = String(input).trim();
+  if (!trimmedInput) return "";
+
+  const directMatch = trimmedInput.match(/^(UC[A-Za-z0-9_-]{22})$/);
+  if (directMatch) return directMatch[1];
+
+  const channelMatch = trimmedInput.match(/\/channel\/(UC[A-Za-z0-9_-]{22})/i);
+  if (channelMatch) return channelMatch[1];
+
+  return "";
+}
+
 function extractChannelIdFromText(text = "") {
   const patterns = [
-    /"channelId"\s*:\s*"(UC[A-Za-z0-9_-]+)"/,
-    /"externalId"\s*:\s*"(UC[A-Za-z0-9_-]+)"/,
-    /youtube\.com\/channel\/(UC[A-Za-z0-9_-]+)/,
-    /<link[^>]+rel="canonical"[^>]+href="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]+)"/i,
-    /<link[^>]+href="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]+)"[^>]+rel="canonical"/i
+    /"channelId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"/,
+    /\\"channelId\\"\s*:\s*\\"(UC[A-Za-z0-9_-]{22})\\"/,
+    /"externalId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"/,
+    /\\"externalId\\"\s*:\s*\\"(UC[A-Za-z0-9_-]{22})\\"/,
+    /<meta[^>]+itemprop=["']channelId["'][^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]*>/i,
+    /<meta[^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]+itemprop=["']channelId["'][^>]*>/i,
+    /<meta[^>]+itemprop=["']identifier["'][^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]*>/i,
+    /<meta[^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]+itemprop=["']identifier["'][^>]*>/i,
+    /<link[^>]+rel="canonical"[^>]+href="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})"/i,
+    /<link[^>]+href="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})"[^>]+rel="canonical"/i,
+    /youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})/
   ];
 
   for (const pattern of patterns) {
@@ -72,21 +108,29 @@ function extractChannelIdFromText(text = "") {
 }
 
 async function resolveChannelId({ channelId, url, handle }) {
-  if (channelId) return channelId;
+  const normalizedChannelId = normalizeChannelId(channelId);
+  if (normalizedChannelId) return normalizedChannelId;
 
-  const pageUrl = handle ? `https://www.youtube.com/@${String(handle).replace(/^@/, "")}` : normalizePageUrl(url);
-  if (!pageUrl) return "";
+  const handleName = handle ? String(handle).replace(/^@/, "").trim() : "";
+  const normalizedUrl = normalizePageUrl(url);
+  const handleUrl = handleName ? `https://www.youtube.com/@${handleName}` : "";
+  const pageUrls = uniqueValues([handleUrl, appendAboutUrl(handleUrl), normalizedUrl, appendAboutUrl(normalizedUrl)]);
 
-  const pageResponse = await fetch(pageUrl, {
-    headers: {
-      "user-agent": "Mozilla/5.0 follow YouTube feed resolver"
+  for (const pageUrl of pageUrls) {
+    try {
+      const pageResponse = await fetch(pageUrl, { headers: YOUTUBE_PAGE_HEADERS });
+      const html = await pageResponse.text();
+
+      if (!pageResponse.ok) continue;
+
+      const resolvedChannelId = extractChannelIdFromText(html);
+      if (resolvedChannelId) return resolvedChannelId;
+    } catch {
+      // Try the next candidate URL.
     }
-  });
-  const html = await pageResponse.text();
+  }
 
-  if (!pageResponse.ok) return "";
-
-  return extractChannelIdFromText(html);
+  return "";
 }
 
 export default async function handler(request, response) {
@@ -112,7 +156,7 @@ export default async function handler(request, response) {
         channelId: channelId || "",
         resolvedChannelId: "",
         error: "channel_id_not_resolved",
-        message: "无法从这个 YouTube 频道链接识别 channelId，请尝试使用 /channel/UC... 格式链接",
+        message: "无法从这个 YouTube 频道链接识别 channelId，请尝试在 YouTube 频道页点击“分享频道 → 复制频道 ID”。",
         input,
         videos: []
       });

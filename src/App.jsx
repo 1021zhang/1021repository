@@ -5,15 +5,6 @@ const HOME_PLATFORM_IDS = ["youtube", "xiaohongshu", "weibo", "instagram"];
 const YOUTUBE_FEED_BASE_URL = "https://www.youtube.com/feeds/videos.xml?channel_id=";
 const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
-const youtubeMockChannelIds = {
-  "Peter McKinnon": "UC-placeholder-peter-mckinnon",
-  "Sara Dietschy": "UC-placeholder-sara-dietschy",
-  MKBHD: "UCVYamHliCI9rw1tHR1xbkfw",
-  "The Futur": "UC-placeholder-the-futur",
-  BestDressed: "UC-placeholder-bestdressed",
-  Vogue: "UC-placeholder-vogue"
-};
-
 const initialPlatforms = [
   { id: "youtube", name: "YouTube", syncType: "manual", homepageUrl: "https://www.youtube.com", connected: false, creators: [] },
   { id: "xiaohongshu", name: "小红书", syncType: "manual", homepageUrl: "https://www.xiaohongshu.com", connected: false, creators: [] },
@@ -62,8 +53,7 @@ function normalizePlatforms(platforms) {
 function normalizeCreators(platform) {
   if (Array.isArray(platform.creators)) {
     return platform.creators.map((creator) => {
-      const youtubeSourceId =
-        platform.id === "youtube" ? creator.sourceId || youtubeMockChannelIds[creator.name] || "" : creator.sourceId;
+      const youtubeSourceId = platform.id === "youtube" ? normalizeYouTubeChannelId(creator.sourceId) : creator.sourceId;
       const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(creator.homepageUrl || creator.handle || "") : null;
 
       return {
@@ -165,16 +155,16 @@ function normalizeYouTubeChannelId(input) {
   const trimmedInput = String(input).trim();
   if (!trimmedInput) return "";
 
-  const directMatch = trimmedInput.match(/^(UC[A-Za-z0-9_-]+)/);
+  const directMatch = trimmedInput.match(/^(UC[A-Za-z0-9_-]{22})$/);
   if (directMatch) return directMatch[1];
 
-  const channelMatch = trimmedInput.match(/\/channel\/(UC[A-Za-z0-9_-]+)/i);
+  const channelMatch = trimmedInput.match(/\/channel\/(UC[A-Za-z0-9_-]{22})/i);
   if (channelMatch) return channelMatch[1];
 
-  const youtubeChannelMatch = trimmedInput.match(/youtube\.com\/channel\/(UC[A-Za-z0-9_-]+)/i);
+  const youtubeChannelMatch = trimmedInput.match(/youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})/i);
   if (youtubeChannelMatch) return youtubeChannelMatch[1];
 
-  return trimmedInput;
+  return "";
 }
 
 function resolveYouTubeChannelInfo(input) {
@@ -213,7 +203,7 @@ function resolveYouTubeChannelInfo(input) {
 }
 
 function isValidYouTubeChannelId(channelId) {
-  return /^UC[A-Za-z0-9_-]+$/.test(String(channelId || "").trim());
+  return /^UC[A-Za-z0-9_-]{22}$/.test(String(channelId || "").trim());
 }
 
 function getYouTubeChannelId(creator) {
@@ -250,7 +240,7 @@ function getYouTubeCreatorSyncTarget(creator) {
 function getYouTubeSyncErrorMessage(errorCode) {
   const messages = {
     missing_input: "同步失败：缺少 YouTube 频道链接或 channelId",
-    channel_id_not_resolved: "同步失败：无法识别频道 ID，请尝试粘贴 /channel/UC... 格式链接",
+    channel_id_not_resolved: "同步失败：无法识别频道 ID，请尝试在 YouTube 频道页点击“分享频道 → 复制频道 ID”。",
     feed_fetch_failed: "同步失败：YouTube feed 请求失败，请稍后重试",
     invalid_feed_response: "同步失败：YouTube feed 返回异常",
     no_videos_parsed: "同步失败：已读取 feed，但没有解析到视频"
@@ -734,8 +724,8 @@ export default function App() {
                     ...creator,
                     selected: true,
                     homepageUrl,
-                    sourceId: channelId || creator.sourceId,
-                    feedUrl: feedUrl || creator.feedUrl,
+                    sourceId: channelId || (isValidYouTubeChannelId(creator.sourceId) ? creator.sourceId : ""),
+                    feedUrl: feedUrl || (isValidYouTubeChannelId(creator.sourceId) ? creator.feedUrl : ""),
                     handle: platform.id === "youtube" ? youtubeInfo.handle : creator.handle,
                     updates: [...updates, ...creator.updates]
                   }
@@ -1196,7 +1186,6 @@ function ManualAddModal({ platform, onClose, onAdd }) {
     platformId: platform.id,
     creator: "",
     homepageUrl: "",
-    channelId: "",
     title: "",
     updateUrl: "",
     time: getCurrentTime()
@@ -1218,7 +1207,6 @@ function ManualAddModal({ platform, onClose, onAdd }) {
       platformId: form.platformId,
       creator: form.creator,
       homepageUrl: form.homepageUrl,
-      channelId: form.channelId,
       title: form.title,
       updateUrl: form.updateUrl,
       time: form.time || getCurrentTime()
