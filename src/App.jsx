@@ -247,6 +247,18 @@ function getYouTubeCreatorSyncTarget(creator) {
   return null;
 }
 
+function getYouTubeSyncErrorMessage(errorCode) {
+  const messages = {
+    missing_input: "同步失败：缺少 YouTube 频道链接或 channelId",
+    channel_id_not_resolved: "同步失败：无法识别频道 ID，请尝试粘贴 /channel/UC... 格式链接",
+    feed_fetch_failed: "同步失败：YouTube feed 请求失败，请稍后重试",
+    invalid_feed_response: "同步失败：YouTube feed 返回异常",
+    no_videos_parsed: "同步失败：已读取 feed，但没有解析到视频"
+  };
+
+  return messages[errorCode] || "同步失败：未知错误";
+}
+
 function getUnreadCreators(platform) {
   return platform.creators
     .filter((creator) => creator.selected !== false)
@@ -338,7 +350,7 @@ export default function App() {
   const [editingCreatorContext, setEditingCreatorContext] = useState(null);
   const [showAddChoice, setShowAddChoice] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
-  const [youtubeSyncState, setYouTubeSyncState] = useState({ status: "idle", message: "" });
+  const [youtubeSyncState, setYouTubeSyncState] = useState({ status: "idle", message: "", debugInfo: null });
   const autoSyncStartedRef = useRef(false);
 
   const activePlatform = platforms.find((platform) => platform.id === activePlatformId);
@@ -505,14 +517,14 @@ export default function App() {
     if (!youtube) return { addedCount: 0, failedCount: 0 };
 
     if (!silent) {
-      setYouTubeSyncState({ status: "syncing", message: "同步中..." });
+      setYouTubeSyncState({ status: "syncing", message: "同步中...", debugInfo: null });
     }
 
     if (syncTargets.length === 0) {
       const syncedAt = new Date().toISOString();
       updatePlatforms(platforms.map((platform) => (platform.id === "youtube" ? { ...platform, lastSyncedAt: syncedAt } : platform)));
       if (!silent) {
-        setYouTubeSyncState({ status: "success", message: "还没有可同步的 YouTube 频道，请先添加频道链接。" });
+        setYouTubeSyncState({ status: "success", message: "还没有可同步的 YouTube 频道，请先添加频道链接。", debugInfo: null });
       }
       return { addedCount: 0, failedCount: 0 };
     }
@@ -525,8 +537,20 @@ export default function App() {
           const data = await response.json().catch(() => ({}));
 
           if (!response.ok) {
-            const message = data.error === "Missing channelId" ? "channelId 缺失" : data.error || "YouTube feed 无法读取";
-            throw new Error(message);
+            return {
+              creatorId: creator.id,
+              videos: [],
+              failed: true,
+              errorCode: data.error || "unknown",
+              errorMessage: getYouTubeSyncErrorMessage(data.error),
+              debugInfo: {
+                creatorName: creator.name,
+                sourceId: creator.sourceId || "",
+                homepageUrl: creator.homepageUrl || "",
+                feedUrl: creator.feedUrl || data.feedUrl || "",
+                error: data.error || "unknown"
+              }
+            };
           }
 
           return {
@@ -534,17 +558,26 @@ export default function App() {
             videos: Array.isArray(data.videos) ? data.videos : [],
             resolvedChannelId: data.resolvedChannelId || data.channelId || "",
             failed: false,
-            errorMessage: ""
+            errorCode: "",
+            errorMessage: "",
+            debugInfo: null
           };
         } catch (error) {
           console.warn("YouTube feed sync failed", creator.name, error);
-          const rawMessage = error instanceof TypeError ? "网络请求失败" : error.message || "网络请求失败";
-          const errorMessage = rawMessage.includes("无法识别这个 YouTube 频道")
-            ? `${creator.name} 暂时无法识别频道 ID，请尝试使用 /channel/UC... 链接`
-            : rawMessage === "Failed to fetch YouTube feed"
-              ? "YouTube feed 无法读取"
-            : rawMessage;
-          return { creatorId: creator.id, videos: [], failed: true, errorMessage };
+          return {
+            creatorId: creator.id,
+            videos: [],
+            failed: true,
+            errorCode: "network_request_failed",
+            errorMessage: "同步失败：网络请求失败",
+            debugInfo: {
+              creatorName: creator.name,
+              sourceId: creator.sourceId || "",
+              homepageUrl: creator.homepageUrl || "",
+              feedUrl: creator.feedUrl || "",
+              error: "network_request_failed"
+            }
+          };
         }
       })
     );
@@ -602,21 +635,39 @@ export default function App() {
     updatePlatforms(nextPlatforms);
 
     if (!silent) {
+      const firstDebugInfo =
+        apiFailedResults[0]?.debugInfo ||
+        (missingTargetCreators[0]
+          ? {
+              creatorName: missingTargetCreators[0].name,
+              sourceId: missingTargetCreators[0].sourceId || "",
+              homepageUrl: missingTargetCreators[0].homepageUrl || "",
+              feedUrl: missingTargetCreators[0].feedUrl || "",
+              error: "missing_input"
+            }
+          : null);
+
       if (failedCount > 0 && results.every((result) => result.failed)) {
         const firstMissingMessage = missingTargetCreators[0]
           ? `${missingTargetCreators[0].name} 暂时无法识别频道 ID，请尝试使用 /channel/UC... 链接`
           : "";
         const firstApiMessage = apiFailedResults[0]?.errorMessage || "";
-        setYouTubeSyncState({ status: "error", message: `同步失败：${firstMissingMessage || firstApiMessage || "网络请求失败"}` });
+        setYouTubeSyncState({
+          status: "error",
+          message: firstMissingMessage ? `同步失败：${firstMissingMessage}` : firstApiMessage || "同步失败：未知错误",
+          debugInfo: firstDebugInfo
+        });
       } else if (failedCount > 0) {
         setYouTubeSyncState({
           status: "success",
-          message: `同步完成，发现 ${addedCount} 条新更新，${failedCount} 个频道失败`
+          message: `同步完成，发现 ${addedCount} 条新更新，${failedCount} 个频道失败`,
+          debugInfo: firstDebugInfo
         });
       } else {
         setYouTubeSyncState({
           status: "success",
-          message: addedCount > 0 ? `发现 ${addedCount} 条新更新` : "同步完成，暂无新更新"
+          message: addedCount > 0 ? `发现 ${addedCount} 条新更新` : "同步完成，暂无新更新",
+          debugInfo: null
         });
       }
     }
@@ -1307,6 +1358,16 @@ function SyncPage({ youtubePlatform, syncState, onSync }) {
           {isSyncing ? "同步中..." : "立即同步 YouTube"}
         </button>
         {syncState.message && <p className="sync-message">{syncState.message}</p>}
+        {syncState.debugInfo && (
+          <div className="sync-debug">
+            <strong>调试信息：</strong>
+            <span>失败频道名：{syncState.debugInfo.creatorName || "-"}</span>
+            <span>当前 sourceId：{syncState.debugInfo.sourceId || "-"}</span>
+            <span>当前 homepageUrl：{syncState.debugInfo.homepageUrl || "-"}</span>
+            <span>当前 feedUrl：{syncState.debugInfo.feedUrl || "-"}</span>
+            <span>错误类型：{syncState.debugInfo.error || "-"}</span>
+          </div>
+        )}
       </section>
     </section>
   );

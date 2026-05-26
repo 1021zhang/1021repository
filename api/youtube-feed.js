@@ -35,6 +35,10 @@ function parseVideos(xml) {
   });
 }
 
+function firstQueryValue(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function normalizePageUrl(url) {
   if (!url) return "";
   const trimmedUrl = String(url).trim();
@@ -80,10 +84,16 @@ async function resolveChannelId({ channelId, url, handle }) {
 }
 
 export default async function handler(request, response) {
-  const { channelId, url, handle } = request.query;
+  const channelId = firstQueryValue(request.query.channelId);
+  const url = firstQueryValue(request.query.url);
+  const handle = firstQueryValue(request.query.handle);
+  const input = channelId || url || handle || "";
 
   if (!channelId && !url && !handle) {
-    response.status(400).json({ error: "Missing channelId" });
+    response.status(400).json({
+      error: "missing_input",
+      message: "缺少 YouTube channelId 或频道链接"
+    });
     return;
   }
 
@@ -94,7 +104,9 @@ export default async function handler(request, response) {
       response.status(400).json({
         channelId: channelId || "",
         resolvedChannelId: "",
-        error: "无法识别这个 YouTube 频道，请尝试粘贴 /channel/UC... 格式链接",
+        error: "channel_id_not_resolved",
+        message: "无法从这个 YouTube 频道链接识别 channelId，请尝试使用 /channel/UC... 格式链接",
+        input,
         videos: []
       });
       return;
@@ -108,22 +120,54 @@ export default async function handler(request, response) {
       response.status(feedResponse.status).json({
         channelId: channelId || "",
         resolvedChannelId,
-        error: "Failed to fetch YouTube feed",
+        error: "feed_fetch_failed",
+        message: "YouTube feed 请求失败",
+        feedUrl,
+        status: feedResponse.status,
+        videos: []
+      });
+      return;
+    }
+
+    if (!/<feed/i.test(xml) && !/<entry/i.test(xml)) {
+      response.status(502).json({
+        error: "invalid_feed_response",
+        message: "YouTube feed 返回内容异常",
+        channelId: resolvedChannelId,
+        resolvedChannelId,
+        feedUrl,
+        preview: xml.slice(0, 200),
+        videos: []
+      });
+      return;
+    }
+
+    const videos = parseVideos(xml);
+
+    if (videos.length === 0) {
+      response.status(502).json({
+        error: "no_videos_parsed",
+        message: "YouTube feed 已读取，但没有解析到视频",
+        channelId: resolvedChannelId,
+        resolvedChannelId,
+        feedUrl,
         videos: []
       });
       return;
     }
 
     response.status(200).json({
-      channelId: channelId || "",
+      channelId: channelId || resolvedChannelId,
       resolvedChannelId,
-      videos: parseVideos(xml)
+      feedUrl,
+      videos
     });
   } catch (error) {
     response.status(502).json({
       channelId: channelId || "",
       resolvedChannelId: "",
-      error: "Failed to fetch YouTube feed",
+      error: "feed_fetch_failed",
+      message: "YouTube feed 请求失败",
       detail: error instanceof Error ? error.message : String(error),
       videos: []
     });

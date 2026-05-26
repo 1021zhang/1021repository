@@ -653,6 +653,20 @@ select:focus {
   font-weight: 900;
 }
 
+.sync-debug {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  color: var(--gray);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.sync-debug strong {
+  color: #777777;
+}
+
 .submit-button:disabled {
   opacity: 0.58;
   cursor: not-allowed;
