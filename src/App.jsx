@@ -329,6 +329,21 @@ function getYouTubeChannelId(creator) {
   }
 }
 
+function normalizeYouTubeFeedUrl(url) {
+  const normalizedUrl = normalizeExternalUrl(url);
+  if (!normalizedUrl) return "";
+
+  try {
+    const parsedUrl = new URL(normalizedUrl);
+    const hostname = parsedUrl.hostname.replace(/^www\./, "");
+    const channelId = normalizeYouTubeChannelId(parsedUrl.searchParams.get("channel_id") || "");
+    if (hostname !== "youtube.com" || parsedUrl.pathname !== "/feeds/videos.xml" || !channelId) return "";
+    return parsedUrl.toString();
+  } catch {
+    return "";
+  }
+}
+
 function getYouTubeHomepageUrl(homepageUrl, channelId) {
   const normalizedHomepageUrl = normalizeExternalUrl(homepageUrl);
   if (normalizedHomepageUrl) return normalizedHomepageUrl;
@@ -336,6 +351,9 @@ function getYouTubeHomepageUrl(homepageUrl, channelId) {
 }
 
 function getYouTubeCreatorSyncTarget(creator) {
+  const feedUrl = normalizeYouTubeFeedUrl(creator.feedUrl);
+  if (feedUrl) return { type: "feedUrl", value: feedUrl };
+
   const channelId = getYouTubeChannelId(creator);
   if (isValidYouTubeChannelId(channelId)) return { type: "channelId", value: channelId };
 
@@ -347,17 +365,28 @@ function getYouTubeCreatorSyncTarget(creator) {
   return null;
 }
 
-function getYouTubeCreatorFallbackTarget(creator) {
+function getYouTubeCreatorFallbackTargets(creator, currentType) {
+  const targets = [];
+  const channelId = normalizeYouTubeChannelId(creator.sourceId);
+  if (currentType !== "channelId" && isValidYouTubeChannelId(channelId)) {
+    targets.push({ type: "channelId", value: channelId });
+  }
+
   const homepageUrl = normalizeExternalUrl(creator.homepageUrl);
-  if (homepageUrl) return { type: "url", value: homepageUrl };
+  if (currentType !== "url" && homepageUrl) {
+    targets.push({ type: "url", value: homepageUrl });
+  }
 
-  if (creator.handle) return { type: "handle", value: String(creator.handle).replace(/^@/, "") };
+  if (currentType !== "handle" && creator.handle) {
+    targets.push({ type: "handle", value: String(creator.handle).replace(/^@/, "") });
+  }
 
-  return null;
+  return targets;
 }
 
 function getYouTubeFeedQuery(target) {
-  const queryKey = target.type === "channelId" ? "channelId" : target.type === "handle" ? "handle" : "url";
+  const queryKey =
+    target.type === "feedUrl" ? "feedUrl" : target.type === "channelId" ? "channelId" : target.type === "handle" ? "handle" : "url";
   return `${queryKey}=${encodeURIComponent(target.value)}`;
 }
 
@@ -366,6 +395,10 @@ function isStaleYouTubeSourceError(data) {
   const responsePreview = String(data.responsePreview || data.preview || "");
   return (
     data.error === "feed_fetch_failed" ||
+    data.error === "invalid_feed_url" ||
+    data.error === "invalid_feed_response" ||
+    data.error === "no_videos_parsed" ||
+    data.error === "alternate_feed_invalid" ||
     data.error === "resolved_channel_feed_invalid" ||
     Number(data.status) === 404 ||
     data.statusText === "Not Found" ||
@@ -848,6 +881,8 @@ export default function App() {
             errorMessage: data.errorMessage || data.message || errorMessage,
             responsePreview: (data.responsePreview || data.preview || "").slice(0, 200),
             candidateCount: Array.isArray(data.candidates) ? data.candidates.length : "",
+            alternateFeedCount: data.alternateFeedCount || "",
+            resolvedBy: data.resolvedBy || "",
             suggestion: extraDebug.suggestion || "",
             ...extraDebug
           }
@@ -857,11 +892,13 @@ export default function App() {
           const { response, data } = await requestFeed(target);
 
           if (!response.ok) {
-            const shouldFallback = target.type === "channelId" && isStaleYouTubeSourceError(data);
-            const fallbackTarget = shouldFallback ? getYouTubeCreatorFallbackTarget(creator) : null;
+            const shouldFallback = (target.type === "feedUrl" || target.type === "channelId") && isStaleYouTubeSourceError(data);
+            const fallbackTargets = shouldFallback ? getYouTubeCreatorFallbackTargets(creator, target.type) : [];
+            let lastFallbackData = data;
 
-            if (fallbackTarget) {
+            for (const fallbackTarget of fallbackTargets) {
               const fallbackResult = await requestFeed(fallbackTarget);
+              lastFallbackData = fallbackResult.data;
 
               if (fallbackResult.response.ok) {
                 return {
@@ -869,6 +906,8 @@ export default function App() {
                   videos: Array.isArray(fallbackResult.data.videos) ? fallbackResult.data.videos : [],
                   resolvedChannelId: fallbackResult.data.resolvedChannelId || fallbackResult.data.channelId || "",
                   channelTitle: fallbackResult.data.channelTitle || "",
+                  feedUrl: fallbackResult.data.feedUrl || "",
+                  resolvedBy: fallbackResult.data.resolvedBy || "",
                   failed: false,
                   recoveredSourceId: true,
                   oldSourceId,
@@ -877,32 +916,29 @@ export default function App() {
                   debugInfo: null
                 };
               }
-
-              return createFailureResult(
-                fallbackResult.data,
-                "无法读取该频道 feed，已清空错误频道 ID，请稍后重试或换用 /channel/UC... 链接",
-                {
-                  clearSource: true,
-                  error: fallbackResult.data.error || data.error || "channel_id_not_resolved",
-                  feedUrl: "",
-                  status: fallbackResult.data.status ?? data.status ?? "",
-                  statusText: fallbackResult.data.statusText || data.statusText || "",
-                  errorMessage:
-                    fallbackResult.data.errorMessage ||
-                    fallbackResult.data.message ||
-                    "无法读取该频道 feed，已清空错误频道 ID，请稍后重试或换用 /channel/UC... 链接",
-                  responsePreview: (fallbackResult.data.responsePreview || fallbackResult.data.preview || data.responsePreview || "").slice(0, 200),
-                  candidateCount: Array.isArray(fallbackResult.data.candidates) ? fallbackResult.data.candidates.length : "",
-                  suggestion: "请编辑该频道，只保留 YouTube @handle 链接后重试"
-                }
-              );
             }
 
             if (shouldFallback) {
-              return createFailureResult(data, "无法读取该频道 feed，已清空错误频道 ID，请稍后重试或换用 /channel/UC... 链接", {
-                clearSource: true,
-                suggestion: "请编辑该频道，只保留 YouTube @handle 链接后重试"
-              });
+              return createFailureResult(
+                lastFallbackData,
+                "无法读取该频道 feed，已清空错误频道 ID，请稍后重试或换用 /channel/UC... 链接",
+                {
+                  clearSource: true,
+                  error: lastFallbackData.error || data.error || "channel_id_not_resolved",
+                  feedUrl: "",
+                  status: lastFallbackData.status ?? data.status ?? "",
+                  statusText: lastFallbackData.statusText || data.statusText || "",
+                  errorMessage:
+                    lastFallbackData.errorMessage ||
+                    lastFallbackData.message ||
+                    "无法读取该频道 feed，已清空错误频道 ID，请稍后重试或换用 /channel/UC... 链接",
+                  responsePreview: (lastFallbackData.responsePreview || lastFallbackData.preview || data.responsePreview || "").slice(0, 200),
+                  candidateCount: Array.isArray(lastFallbackData.candidates) ? lastFallbackData.candidates.length : "",
+                  alternateFeedCount: lastFallbackData.alternateFeedCount || "",
+                  resolvedBy: lastFallbackData.resolvedBy || "",
+                  suggestion: "请编辑该频道，只保留 YouTube @handle 链接后重试"
+                }
+              );
             }
 
             return createFailureResult(data);
@@ -913,6 +949,8 @@ export default function App() {
             videos: Array.isArray(data.videos) ? data.videos : [],
             resolvedChannelId: data.resolvedChannelId || data.channelId || "",
             channelTitle: data.channelTitle || "",
+            feedUrl: data.feedUrl || "",
+            resolvedBy: data.resolvedBy || "",
             failed: false,
             recoveredSourceId: false,
             oldSourceId,
@@ -948,6 +986,9 @@ export default function App() {
     let updatedCreatorCount = 0;
     const apiFailedResults = results.filter((result) => result.failed);
     const recoveredSourceCount = results.filter((result) => result.recoveredSourceId).length;
+    const alternateRecoveredCount = results.filter(
+      (result) => result.recoveredSourceId && result.resolvedBy === "alternate_feed"
+    ).length;
     const failedCount = missingTargetCreators.length + apiFailedResults.length;
     const syncedAt = new Date().toISOString();
 
@@ -969,7 +1010,7 @@ export default function App() {
           const resolvedFields = isValidYouTubeChannelId(resolvedChannelId) && latestVideo
             ? {
                 sourceId: resolvedChannelId,
-                feedUrl: getYouTubeFeedUrl(resolvedChannelId)
+                feedUrl: normalizeYouTubeFeedUrl(result.feedUrl) || getYouTubeFeedUrl(resolvedChannelId)
               }
             : {};
           const resolvedName =
@@ -1046,17 +1087,31 @@ export default function App() {
           debugInfo: firstDebugInfo
         });
       } else if (failedCount > 0) {
+        const recoveredText =
+          recoveredSourceCount > 0
+            ? `，${recoveredSourceCount} 个频道已重新识别${
+                alternateRecoveredCount > 0 ? `，其中 ${alternateRecoveredCount} 个已通过频道 RSS 链接识别` : ""
+              }`
+            : "";
+
         setYouTubeSyncState({
           status: "success",
-          message: `同步完成，发现 ${updatedCreatorCount} 位博主的新更新，${failedCount} 个频道失败${recoveredSourceCount > 0 ? `，${recoveredSourceCount} 个频道已重新识别` : ""}`,
+          message: `同步完成，发现 ${updatedCreatorCount} 位博主的新更新，${failedCount} 个频道失败${recoveredText}`,
           debugInfo: firstDebugInfo
         });
       } else {
+        const recoveredText =
+          recoveredSourceCount > 0
+            ? `${recoveredSourceCount} 个频道已重新识别${
+                alternateRecoveredCount > 0 ? `，其中 ${alternateRecoveredCount} 个已通过频道 RSS 链接识别` : ""
+              }`
+            : "";
+
         setYouTubeSyncState({
           status: "success",
           message:
             recoveredSourceCount > 0
-              ? `${updatedCreatorCount > 0 ? `发现 ${updatedCreatorCount} 位博主的新更新，` : "同步完成，暂无新更新，"}${recoveredSourceCount} 个频道已重新识别`
+              ? `${updatedCreatorCount > 0 ? `发现 ${updatedCreatorCount} 位博主的新更新，` : "同步完成，暂无新更新，"}${recoveredText}`
               : updatedCreatorCount > 0
                 ? `发现 ${updatedCreatorCount} 位博主的新更新`
                 : "同步完成，暂无新更新",
@@ -1813,10 +1868,12 @@ function SyncPage({ youtubePlatform, syncState, lastAutoYouTubeSyncAt, onSync })
         ["当前 homepageUrl", debugInfo.homepageUrl],
         ["当前 feedUrl", debugInfo.feedUrl],
         ["错误类型", debugInfo.error],
+        ["解析方式", debugInfo.resolvedBy],
         ["HTTP 状态码", debugInfo.status],
         ["状态文字", debugInfo.statusText],
         ["错误信息", debugInfo.errorMessage],
         ["候选 channelId 数量", debugInfo.candidateCount],
+        ["alternate feed 数量", debugInfo.alternateFeedCount],
         ["建议", debugInfo.suggestion],
         ["responsePreview", debugInfo.responsePreview?.slice(0, 200)]
       ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
