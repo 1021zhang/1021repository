@@ -685,6 +685,11 @@ function getCreatorPlaceholder(platform) {
   return "例如：瑞英";
 }
 
+function shouldIgnoreSwipeBackTarget(target) {
+  if (!target?.closest) return false;
+  return Boolean(target.closest("input, textarea, select, button, label, [contenteditable='true'], [role='button']"));
+}
+
 export default function App() {
   const [platforms, setPlatforms] = useState(loadPlatforms);
   const [activePlatformId, setActivePlatformId] = useState(null);
@@ -697,6 +702,7 @@ export default function App() {
   const [platformOrder, setPlatformOrder] = useState(() => normalizePlatformOrder(readPlatformOrder(), platforms));
   const [platformVisibility, setPlatformVisibility] = useState(() => normalizePlatformVisibility(readPlatformVisibility(), platforms));
   const autoSyncStartedRef = useRef(false);
+  const swipeBackRef = useRef({ tracking: false, startX: 0, startY: 0, lastX: 0, lastY: 0 });
 
   const activePlatform = platforms.find((platform) => platform.id === activePlatformId);
   const manualPlatform = platforms.find((platform) => platform.id === manualPlatformId);
@@ -767,6 +773,80 @@ export default function App() {
     setActiveTab("home");
     setActivePlatformId(null);
     setShowAddChoice(false);
+  }
+
+  function resetSwipeBack() {
+    swipeBackRef.current = { tracking: false, startX: 0, startY: 0, lastX: 0, lastY: 0 };
+  }
+
+  function performSwipeBack() {
+    if (showAddChoice) {
+      setShowAddChoice(false);
+      return;
+    }
+
+    if (manualPlatformId) {
+      setManualPlatformId(null);
+      return;
+    }
+
+    if (editingCreatorContext) {
+      setEditingCreatorContext(null);
+      return;
+    }
+
+    if (activePlatformId) {
+      setActivePlatformId(null);
+      return;
+    }
+
+    if (activeTab === "sync" || activeTab === "settings") {
+      openHome();
+    }
+  }
+
+  function handleSwipeBackTouchStart(event) {
+    const touch = event.touches?.[0];
+    if (!touch || event.touches.length !== 1 || touch.clientX > 30 || shouldIgnoreSwipeBackTarget(event.target)) {
+      resetSwipeBack();
+      return;
+    }
+
+    swipeBackRef.current = {
+      tracking: true,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      lastX: touch.clientX,
+      lastY: touch.clientY
+    };
+  }
+
+  function handleSwipeBackTouchMove(event) {
+    if (!swipeBackRef.current.tracking) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+
+    swipeBackRef.current = {
+      ...swipeBackRef.current,
+      lastX: touch.clientX,
+      lastY: touch.clientY
+    };
+  }
+
+  function handleSwipeBackTouchEnd(event) {
+    const swipe = swipeBackRef.current;
+    if (!swipe.tracking) return;
+
+    const touch = event.changedTouches?.[0];
+    const endX = touch?.clientX ?? swipe.lastX;
+    const endY = touch?.clientY ?? swipe.lastY;
+    const deltaX = endX - swipe.startX;
+    const deltaY = endY - swipe.startY;
+    resetSwipeBack();
+
+    if (deltaX >= 80 && Math.abs(deltaY) <= 60 && deltaX > Math.abs(deltaY) * 1.5) {
+      performSwipeBack();
+    }
   }
 
   function markUpdateAsRead(platformId, creatorId, updateId) {
@@ -1359,7 +1439,13 @@ export default function App() {
   }
 
   return (
-    <main className="page">
+    <main
+      className="page"
+      onTouchStart={handleSwipeBackTouchStart}
+      onTouchMove={handleSwipeBackTouchMove}
+      onTouchEnd={handleSwipeBackTouchEnd}
+      onTouchCancel={resetSwipeBack}
+    >
       <section className="phone-shell">
         <header className="app-header">
           <div>
