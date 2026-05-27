@@ -21,18 +21,31 @@ function readLink(entry) {
 function parseVideos(xml) {
   const entries = xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
 
-  return entries.slice(0, 3).map((entry) => {
-    const videoId = readTag(entry, "yt:videoId") || readTag(entry, "videoId");
-    const link = readLink(entry);
+  return entries
+    .map((entry, index) => {
+      const videoId = readTag(entry, "yt:videoId") || readTag(entry, "videoId");
+      const link = readLink(entry);
+      const publishedAt = readTag(entry, "published");
+      const updatedAt = readTag(entry, "updated");
 
-    return {
-      id: videoId || link,
-      title: readTag(entry, "title"),
-      url: link,
-      publishedAt: readTag(entry, "published"),
-      updatedAt: readTag(entry, "updated")
-    };
-  });
+      return {
+        id: videoId || link,
+        title: readTag(entry, "title"),
+        url: link,
+        publishedAt,
+        updatedAt,
+        originalIndex: index,
+        sortTime: Date.parse(publishedAt || updatedAt)
+      };
+    })
+    .sort((first, second) => {
+      const firstHasTime = Number.isFinite(first.sortTime);
+      const secondHasTime = Number.isFinite(second.sortTime);
+      if (firstHasTime && secondHasTime && first.sortTime !== second.sortTime) return second.sortTime - first.sortTime;
+      return first.originalIndex - second.originalIndex;
+    })
+    .slice(0, 3)
+    .map(({ originalIndex, sortTime, ...video }) => video);
 }
 
 const YOUTUBE_FEED_HEADERS = {
