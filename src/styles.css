@@ -239,7 +239,22 @@ button {
   grid-template-columns: auto 1fr;
   gap: 12px;
   align-items: center;
+  width: 100%;
   min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.creator-row.clickable {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.creator-row.clickable:active {
+  opacity: 0.78;
 }
 
 .avatar {

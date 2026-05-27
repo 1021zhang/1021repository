@@ -872,7 +872,7 @@ export default function App() {
   }
 
   function openExternalLink({ platform, creator, update }) {
-    const finalUrl = normalizeExternalUrl(update?.url || creator?.homepageUrl || platform?.homepageUrl);
+    const finalUrl = normalizeExternalUrl(update?.url || update?.link || update?.contentUrl || creator?.homepageUrl || platform?.homepageUrl);
 
     if (!finalUrl) {
       alert("当前是模拟内容，暂无真实链接。你可以手动添加真实链接。");
@@ -1484,6 +1484,7 @@ export default function App() {
             platformOrder={platformOrder}
             platformVisibility={platformVisibility}
             onConnect={openPlatformAction}
+            onOpenUpdate={openExternalLink}
             onReset={resetDemo}
             onViewAll={(platformId) => setActivePlatformId(platformId)}
           />
@@ -1568,7 +1569,7 @@ export default function App() {
   );
 }
 
-function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onReset, onViewAll }) {
+function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onOpenUpdate, onReset, onViewAll }) {
   const homePlatforms = getHomePlatforms(platforms, platformOrder, platformVisibility);
 
   return (
@@ -1586,6 +1587,7 @@ function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onR
             key={platform.id}
             platform={platform}
             onConnect={() => onConnect(platform)}
+            onOpenUpdate={onOpenUpdate}
             onViewAll={() => onViewAll(platform.id)}
           />
         ))}
@@ -1594,7 +1596,7 @@ function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onR
   );
 }
 
-function PlatformCard({ platform, onConnect, onViewAll }) {
+function PlatformCard({ platform, onConnect, onOpenUpdate, onViewAll }) {
   const unreadCreators = getUnreadCreators(platform);
   const previewCreators = unreadCreators.slice(0, 2);
   const restCount = unreadCreators.length - previewCreators.length;
@@ -1622,7 +1624,15 @@ function PlatformCard({ platform, onConnect, onViewAll }) {
       {unreadCreators.length > 0 && (
         <div className="creator-list">
           {previewCreators.map((creator) => (
-            <CreatorRow key={creator.id} creator={creator} update={creator.unreadUpdates[0]} />
+            <CreatorRow
+              key={creator.id}
+              creator={creator}
+              update={creator.unreadUpdates[0]}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenUpdate({ platform, creator, update: creator.unreadUpdates[0] });
+              }}
+            />
           ))}
           {restCount > 0 && (
             <button className="more-line" type="button" onClick={onViewAll}>还有 {restCount} 位更新⌄</button>
@@ -1633,9 +1643,11 @@ function PlatformCard({ platform, onConnect, onViewAll }) {
   );
 }
 
-function CreatorRow({ creator, update }) {
+function CreatorRow({ creator, update, onClick }) {
+  const Component = onClick ? "button" : "div";
+
   return (
-    <div className="creator-row">
+    <Component className={`creator-row ${onClick ? "clickable" : ""}`} type={onClick ? "button" : undefined} onClick={onClick}>
       <Avatar text={creator.avatar} />
       <div className="creator-info">
         <div>
@@ -1644,7 +1656,7 @@ function CreatorRow({ creator, update }) {
         </div>
         <p>{update.title}</p>
       </div>
-    </div>
+    </Component>
   );
 }
 
