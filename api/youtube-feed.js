@@ -84,27 +84,77 @@ function normalizeChannelId(input = "") {
   return "";
 }
 
-function extractChannelIdFromText(text = "") {
-  const patterns = [
-    /"channelId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"/,
-    /\\"channelId\\"\s*:\s*\\"(UC[A-Za-z0-9_-]{22})\\"/,
-    /"externalId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"/,
-    /\\"externalId\\"\s*:\s*\\"(UC[A-Za-z0-9_-]{22})\\"/,
-    /<meta[^>]+itemprop=["']channelId["'][^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]*>/i,
-    /<meta[^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]+itemprop=["']channelId["'][^>]*>/i,
-    /<meta[^>]+itemprop=["']identifier["'][^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]*>/i,
-    /<meta[^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]+itemprop=["']identifier["'][^>]*>/i,
-    /<link[^>]+rel="canonical"[^>]+href="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})"/i,
-    /<link[^>]+href="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})"[^>]+rel="canonical"/i,
-    /youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})/
-  ];
+function addCandidate(candidates, channelId, source) {
+  if (!channelId || candidates.some((candidate) => candidate.id === channelId)) return;
+  candidates.push({ id: channelId, source });
+}
 
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) return match[1];
+function addMatches(candidates, text, pattern, source) {
+  for (const match of text.matchAll(pattern)) {
+    addCandidate(candidates, match[1], source);
   }
+}
 
-  return "";
+function collectChannelIdCandidates(text = "") {
+  const candidates = [];
+
+  addMatches(
+    candidates,
+    text,
+    /"channelMetadataRenderer"\s*:\s*\{[\s\S]{0,2000}?"externalId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"/g,
+    "channelMetadataRenderer.externalId"
+  );
+  addMatches(
+    candidates,
+    text,
+    /\\"channelMetadataRenderer\\"\s*:\s*\{[\s\S]{0,2000}?\\"externalId\\"\s*:\s*\\"(UC[A-Za-z0-9_-]{22})\\"/g,
+    "channelMetadataRenderer.externalId"
+  );
+  addMatches(
+    candidates,
+    text,
+    /"metadata"\s*:\s*\{[\s\S]{0,3000}?"channelId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"/g,
+    "metadata.channelId"
+  );
+  addMatches(
+    candidates,
+    text,
+    /<meta[^>]+itemprop=["']channelId["'][^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]*>/gi,
+    "meta.channelId"
+  );
+  addMatches(
+    candidates,
+    text,
+    /<meta[^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]+itemprop=["']channelId["'][^>]*>/gi,
+    "meta.channelId"
+  );
+  addMatches(
+    candidates,
+    text,
+    /<meta[^>]+itemprop=["']identifier["'][^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]*>/gi,
+    "meta.identifier"
+  );
+  addMatches(
+    candidates,
+    text,
+    /<meta[^>]+content=["'](UC[A-Za-z0-9_-]{22})["'][^>]+itemprop=["']identifier["'][^>]*>/gi,
+    "meta.identifier"
+  );
+  addMatches(
+    candidates,
+    text,
+    /<link[^>]+rel=["']canonical["'][^>]+href=["']https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})["'][^>]*>/gi,
+    "canonical"
+  );
+  addMatches(
+    candidates,
+    text,
+    /<link[^>]+href=["']https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})["'][^>]+rel=["']canonical["'][^>]*>/gi,
+    "canonical"
+  );
+  addMatches(candidates, text, /youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})/g, "youtube.com/channel");
+
+  return candidates;
 }
 
 function cleanChannelTitle(value = "") {
@@ -140,15 +190,53 @@ function extractChannelTitleFromText(text = "") {
   return "";
 }
 
+async function validateFeedForChannelId(channelId) {
+  const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+
+  try {
+    const feedResponse = await fetch(feedUrl, { headers: YOUTUBE_FEED_HEADERS });
+    const xml = await feedResponse.text();
+    const hasFeed = /<feed/i.test(xml);
+    const videos = hasFeed ? parseVideos(xml) : [];
+    const isValid = feedResponse.ok && hasFeed && (videos.length > 0 || /<\/feed>/i.test(xml));
+
+    return {
+      channelId,
+      feedUrl,
+      status: feedResponse.status,
+      statusText: feedResponse.statusText,
+      responsePreview: xml.slice(0, 300),
+      xml,
+      videos,
+      channelTitle: feedResponse.ok ? cleanChannelTitle(readTag(xml, "title")) : "",
+      valid: isValid
+    };
+  } catch (error) {
+    return {
+      channelId,
+      feedUrl,
+      status: 0,
+      statusText: "",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      responsePreview: "",
+      xml: "",
+      videos: [],
+      channelTitle: "",
+      valid: false
+    };
+  }
+}
+
 async function resolveChannelInfo({ channelId, url, handle }) {
   const normalizedChannelId = normalizeChannelId(channelId);
-  if (normalizedChannelId) return { channelId: normalizedChannelId, channelTitle: "" };
+  if (normalizedChannelId) return { channelId: normalizedChannelId, channelTitle: "", candidates: [normalizedChannelId] };
 
   const handleName = handle ? String(handle).replace(/^@/, "").trim() : "";
   const normalizedUrl = normalizePageUrl(url);
   const handleUrl = handleName ? `https://www.youtube.com/@${handleName}` : "";
   const pageUrls = uniqueValues([handleUrl, appendAboutUrl(handleUrl), normalizedUrl, appendAboutUrl(normalizedUrl)]);
   let channelTitle = "";
+  const candidateRecords = [];
 
   for (const pageUrl of pageUrls) {
     try {
@@ -158,14 +246,25 @@ async function resolveChannelInfo({ channelId, url, handle }) {
       if (!pageResponse.ok) continue;
 
       channelTitle = channelTitle || extractChannelTitleFromText(html);
-      const resolvedChannelId = extractChannelIdFromText(html);
-      if (resolvedChannelId) return { channelId: resolvedChannelId, channelTitle };
+      collectChannelIdCandidates(html).forEach((candidate) => addCandidate(candidateRecords, candidate.id, candidate.source));
     } catch {
       // Try the next candidate URL.
     }
   }
 
-  return { channelId: "", channelTitle };
+  for (const candidate of candidateRecords) {
+    const validation = await validateFeedForChannelId(candidate.id);
+    if (validation.valid) {
+      return {
+        channelId: candidate.id,
+        channelTitle: channelTitle || validation.channelTitle,
+        candidates: candidateRecords.map((item) => item.id),
+        feedValidation: validation
+      };
+    }
+  }
+
+  return { channelId: "", channelTitle, candidates: candidateRecords.map((item) => item.id) };
 }
 
 export default async function handler(request, response) {
@@ -189,6 +288,22 @@ export default async function handler(request, response) {
     let channelTitle = resolvedInfo.channelTitle;
 
     if (!resolvedChannelId) {
+      if (resolvedInfo.candidates?.length > 0) {
+        response.status(502).json({
+          channelId: channelId || "",
+          resolvedChannelId: "",
+          channelTitle,
+          error: "resolved_channel_feed_invalid",
+          message: "已找到频道 ID 候选，但都无法读取 YouTube feed",
+          input,
+          status: 502,
+          statusText: "Bad Gateway",
+          candidates: resolvedInfo.candidates,
+          videos: []
+        });
+        return;
+      }
+
       response.status(400).json({
         channelId: channelId || "",
         resolvedChannelId: "",
@@ -201,25 +316,24 @@ export default async function handler(request, response) {
       return;
     }
 
-    feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(resolvedChannelId)}`;
-    const feedResponse = await fetch(feedUrl, { headers: YOUTUBE_FEED_HEADERS });
-    const xml = await feedResponse.text();
-    if (feedResponse.ok) {
-      channelTitle = channelTitle || cleanChannelTitle(readTag(xml, "title"));
-    }
+    const feedValidation = resolvedInfo.feedValidation || (await validateFeedForChannelId(resolvedChannelId));
+    feedUrl = feedValidation.feedUrl;
+    const xml = feedValidation.xml;
+    channelTitle = channelTitle || feedValidation.channelTitle;
 
-    if (!feedResponse.ok) {
-      response.status(feedResponse.status).json({
+    if (!feedValidation.valid) {
+      const invalidFeedResponse = feedValidation.status === 200 && !/<feed/i.test(feedValidation.xml);
+      response.status(feedValidation.status || 502).json({
         channelId: channelId || "",
         resolvedChannelId,
         channelTitle,
-        error: "feed_fetch_failed",
-        message: "YouTube feed 请求失败",
+        error: invalidFeedResponse ? "invalid_feed_response" : "feed_fetch_failed",
+        message: invalidFeedResponse ? "YouTube feed 返回内容异常" : "YouTube feed 请求失败",
         feedUrl,
-        status: feedResponse.status,
-        statusText: feedResponse.statusText,
-        errorMessage: feedResponse.statusText || "HTTP request failed",
-        responsePreview: xml.slice(0, 300),
+        status: feedValidation.status,
+        statusText: feedValidation.statusText,
+        errorMessage: feedValidation.errorMessage || feedValidation.statusText || "HTTP request failed",
+        responsePreview: feedValidation.responsePreview,
         videos: []
       });
       return;
@@ -233,8 +347,8 @@ export default async function handler(request, response) {
         resolvedChannelId,
         channelTitle,
         feedUrl,
-        status: feedResponse.status,
-        statusText: feedResponse.statusText,
+        status: feedValidation.status,
+        statusText: feedValidation.statusText,
         responsePreview: xml.slice(0, 300),
         videos: []
       });
@@ -251,8 +365,8 @@ export default async function handler(request, response) {
         resolvedChannelId,
         channelTitle,
         feedUrl,
-        status: feedResponse.status,
-        statusText: feedResponse.statusText,
+        status: feedValidation.status,
+        statusText: feedValidation.statusText,
         videos: []
       });
       return;

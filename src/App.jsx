@@ -366,6 +366,7 @@ function isStaleYouTubeSourceError(data) {
   const responsePreview = String(data.responsePreview || data.preview || "");
   return (
     data.error === "feed_fetch_failed" ||
+    data.error === "resolved_channel_feed_invalid" ||
     Number(data.status) === 404 ||
     data.statusText === "Not Found" ||
     message.includes("Not Found") ||
@@ -846,6 +847,7 @@ export default function App() {
             statusText: data.statusText || "",
             errorMessage: data.errorMessage || data.message || errorMessage,
             responsePreview: (data.responsePreview || data.preview || "").slice(0, 200),
+            candidateCount: Array.isArray(data.candidates) ? data.candidates.length : "",
             suggestion: extraDebug.suggestion || "",
             ...extraDebug
           }
@@ -878,22 +880,26 @@ export default function App() {
 
               return createFailureResult(
                 fallbackResult.data,
-                "旧频道 ID 已失效，且无法从频道链接重新识别",
+                "无法读取该频道 feed，已清空错误频道 ID，请稍后重试或换用 /channel/UC... 链接",
                 {
                   clearSource: true,
                   error: fallbackResult.data.error || data.error || "channel_id_not_resolved",
                   feedUrl: "",
                   status: fallbackResult.data.status ?? data.status ?? "",
                   statusText: fallbackResult.data.statusText || data.statusText || "",
-                  errorMessage: fallbackResult.data.errorMessage || fallbackResult.data.message || "旧频道 ID 已失效，且无法从频道链接重新识别",
+                  errorMessage:
+                    fallbackResult.data.errorMessage ||
+                    fallbackResult.data.message ||
+                    "无法读取该频道 feed，已清空错误频道 ID，请稍后重试或换用 /channel/UC... 链接",
                   responsePreview: (fallbackResult.data.responsePreview || fallbackResult.data.preview || data.responsePreview || "").slice(0, 200),
+                  candidateCount: Array.isArray(fallbackResult.data.candidates) ? fallbackResult.data.candidates.length : "",
                   suggestion: "请编辑该频道，只保留 YouTube @handle 链接后重试"
                 }
               );
             }
 
             if (shouldFallback) {
-              return createFailureResult(data, "旧频道 ID 已失效，且无法从频道链接重新识别", {
+              return createFailureResult(data, "无法读取该频道 feed，已清空错误频道 ID，请稍后重试或换用 /channel/UC... 链接", {
                 clearSource: true,
                 suggestion: "请编辑该频道，只保留 YouTube @handle 链接后重试"
               });
@@ -959,7 +965,8 @@ export default function App() {
           if (result.failed) return result.clearSource ? { ...creator, sourceId: "", feedUrl: "" } : creator;
 
           const resolvedChannelId = normalizeYouTubeChannelId(result.resolvedChannelId);
-          const resolvedFields = isValidYouTubeChannelId(resolvedChannelId)
+          const latestVideo = result.videos[0];
+          const resolvedFields = isValidYouTubeChannelId(resolvedChannelId) && latestVideo
             ? {
                 sourceId: resolvedChannelId,
                 feedUrl: getYouTubeFeedUrl(resolvedChannelId)
@@ -970,7 +977,6 @@ export default function App() {
               ? { name: result.channelTitle, avatar: result.channelTitle.slice(0, 1).toUpperCase() }
               : {};
 
-          const latestVideo = result.videos[0];
           if (!latestVideo) return { ...creator, ...resolvedFields, ...resolvedName };
 
           const existingKeys = new Set(
@@ -1042,7 +1048,7 @@ export default function App() {
       } else if (failedCount > 0) {
         setYouTubeSyncState({
           status: "success",
-          message: `同步完成，发现 ${updatedCreatorCount} 位博主的新更新，${failedCount} 个频道失败${recoveredSourceCount > 0 ? "，已重新识别频道 ID" : ""}`,
+          message: `同步完成，发现 ${updatedCreatorCount} 位博主的新更新，${failedCount} 个频道失败${recoveredSourceCount > 0 ? `，${recoveredSourceCount} 个频道已重新识别` : ""}`,
           debugInfo: firstDebugInfo
         });
       } else {
@@ -1050,7 +1056,7 @@ export default function App() {
           status: "success",
           message:
             recoveredSourceCount > 0
-              ? `${updatedCreatorCount > 0 ? `发现 ${updatedCreatorCount} 位博主的新更新，` : ""}已重新识别频道 ID${updatedCreatorCount > 0 ? "" : "，同步完成，暂无新更新"}`
+              ? `${updatedCreatorCount > 0 ? `发现 ${updatedCreatorCount} 位博主的新更新，` : "同步完成，暂无新更新，"}${recoveredSourceCount} 个频道已重新识别`
               : updatedCreatorCount > 0
                 ? `发现 ${updatedCreatorCount} 位博主的新更新`
                 : "同步完成，暂无新更新",
@@ -1810,6 +1816,7 @@ function SyncPage({ youtubePlatform, syncState, lastAutoYouTubeSyncAt, onSync })
         ["HTTP 状态码", debugInfo.status],
         ["状态文字", debugInfo.statusText],
         ["错误信息", debugInfo.errorMessage],
+        ["候选 channelId 数量", debugInfo.candidateCount],
         ["建议", debugInfo.suggestion],
         ["responsePreview", debugInfo.responsePreview?.slice(0, 200)]
       ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
