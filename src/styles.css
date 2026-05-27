@@ -664,6 +664,9 @@ select:focus {
 }
 
 .platform-order-item strong {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   font-size: 15px;
   font-weight: 950;
 }
@@ -688,6 +691,22 @@ select:focus {
   border-color: #e4e4e4;
   color: #b6b6b6;
   cursor: not-allowed;
+}
+
+.hidden-platform-label {
+  color: #9b9b9b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.platform-order-item .visibility-button {
+  border-color: #e4e4e4;
+  color: #777777;
+}
+
+.platform-order-item .visibility-button.visible {
+  border-color: var(--blue);
+  color: var(--blue-dark);
 }
 
 .sync-card {

@@ -3,18 +3,26 @@ import { useEffect, useRef, useState } from "react";
 const STORAGE_KEY = "follow_blue_oval_app_v1";
 const AUTO_YOUTUBE_SYNC_STORAGE_KEY = "follow_last_auto_youtube_sync_at";
 const PLATFORM_ORDER_STORAGE_KEY = "follow_platform_order";
-const HOME_PLATFORM_IDS = ["youtube", "instagram", "bilibili"];
+const PLATFORM_VISIBILITY_STORAGE_KEY = "follow_platform_visibility";
 const DEFAULT_PLATFORM_ORDER = ["youtube", "instagram", "bilibili", "xiaohongshu", "weibo", "rss"];
 const LEGACY_DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
+const DEFAULT_PLATFORM_VISIBILITY = {
+  youtube: true,
+  instagram: true,
+  bilibili: true,
+  xiaohongshu: false,
+  weibo: false,
+  rss: false
+};
 const YOUTUBE_FEED_BASE_URL = "https://www.youtube.com/feeds/videos.xml?channel_id=";
 const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
 const initialPlatforms = [
   { id: "youtube", name: "YouTube", syncType: "manual", homepageUrl: "https://www.youtube.com", connected: false, creators: [] },
+  { id: "instagram", name: "Instagram", syncType: "manual", homepageUrl: "https://www.instagram.com", connected: false, creators: [] },
   { id: "bilibili", name: "B站", syncType: "manual", homepageUrl: "https://www.bilibili.com", connected: false, creators: [] },
   { id: "xiaohongshu", name: "小红书", syncType: "manual", homepageUrl: "https://www.xiaohongshu.com", connected: false, creators: [] },
   { id: "weibo", name: "微博", syncType: "manual", homepageUrl: "https://weibo.com", connected: false, creators: [] },
-  { id: "instagram", name: "Instagram", syncType: "manual", homepageUrl: "https://www.instagram.com", connected: false, creators: [] },
   { id: "rss", name: "RSS", syncType: "rss", homepageUrl: "", connected: false, creators: [] }
 ];
 
@@ -192,6 +200,33 @@ function savePlatformOrder(order) {
     localStorage.setItem(PLATFORM_ORDER_STORAGE_KEY, JSON.stringify(normalizePlatformOrder(order)));
   } catch {
     // Ignore storage failures; visual order can fall back to defaults.
+  }
+}
+
+function normalizePlatformVisibility(visibility, platforms = initialPlatforms) {
+  const savedVisibility = visibility && typeof visibility === "object" ? visibility : {};
+
+  return platforms.reduce((nextVisibility, platform) => {
+    nextVisibility[platform.id] =
+      savedVisibility[platform.id] === undefined ? DEFAULT_PLATFORM_VISIBILITY[platform.id] !== false : savedVisibility[platform.id] !== false;
+    return nextVisibility;
+  }, {});
+}
+
+function readPlatformVisibility() {
+  try {
+    const saved = localStorage.getItem(PLATFORM_VISIBILITY_STORAGE_KEY);
+    return normalizePlatformVisibility(saved ? JSON.parse(saved) : DEFAULT_PLATFORM_VISIBILITY);
+  } catch {
+    return normalizePlatformVisibility(DEFAULT_PLATFORM_VISIBILITY);
+  }
+}
+
+function savePlatformVisibility(visibility, platforms = initialPlatforms) {
+  try {
+    localStorage.setItem(PLATFORM_VISIBILITY_STORAGE_KEY, JSON.stringify(normalizePlatformVisibility(visibility, platforms)));
+  } catch {
+    // Ignore storage failures; visibility can fall back to defaults.
   }
 }
 
@@ -602,18 +637,22 @@ function getPlatformSupplementText(platform, creatorCount) {
   return "先添加博主，有更新会显示在这里";
 }
 
-function getHomePlatforms(platforms, platformOrder) {
+function getHomePlatforms(platforms, platformOrder, platformVisibility) {
   return normalizePlatformOrder(platformOrder, platforms)
-    .filter((platformId) => HOME_PLATFORM_IDS.includes(platformId))
+    .filter((platformId) => platformVisibility?.[platformId] !== false)
     .map((platformId) => platforms.find((platform) => platform.id === platformId))
     .filter(Boolean);
 }
 
-function getVisibleOrderPlatforms(platforms, platformOrder) {
+function getOrderedPlatforms(platforms, platformOrder) {
   return normalizePlatformOrder(platformOrder, platforms)
-    .filter((platformId) => HOME_PLATFORM_IDS.includes(platformId))
     .map((platformId) => platforms.find((platform) => platform.id === platformId))
     .filter(Boolean);
+}
+
+function getAddChoiceText(platform) {
+  if (platform.id === "rss") return "高级：添加 RSS 订阅源";
+  return getActionText(platform);
 }
 
 function getManualModalTitle(platform) {
@@ -656,6 +695,7 @@ export default function App() {
   const [youtubeSyncState, setYouTubeSyncState] = useState({ status: "idle", message: "", debugInfo: null });
   const [lastAutoYouTubeSyncAt, setLastAutoYouTubeSyncAt] = useState(readLastAutoYouTubeSyncAt);
   const [platformOrder, setPlatformOrder] = useState(() => normalizePlatformOrder(readPlatformOrder(), platforms));
+  const [platformVisibility, setPlatformVisibility] = useState(() => normalizePlatformVisibility(readPlatformVisibility(), platforms));
   const autoSyncStartedRef = useRef(false);
 
   const activePlatform = platforms.find((platform) => platform.id === activePlatformId);
@@ -668,6 +708,7 @@ export default function App() {
     const normalizedPlatforms = normalizePlatforms(nextPlatforms);
     setPlatforms(normalizedPlatforms);
     setPlatformOrder((currentOrder) => normalizePlatformOrder(currentOrder, normalizedPlatforms));
+    setPlatformVisibility((currentVisibility) => normalizePlatformVisibility(currentVisibility, normalizedPlatforms));
     savePlatforms(normalizedPlatforms);
   }
 
@@ -679,17 +720,25 @@ export default function App() {
 
   function movePlatformOrder(platformId, direction) {
     const currentOrder = normalizePlatformOrder(platformOrder, platforms);
-    const visibleOrder = currentOrder.filter((item) => HOME_PLATFORM_IDS.includes(item));
-    const currentIndex = visibleOrder.indexOf(platformId);
+    const currentIndex = currentOrder.indexOf(platformId);
     const nextIndex = currentIndex + direction;
 
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= visibleOrder.length) return;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentOrder.length) return;
 
-    const nextVisibleOrder = [...visibleOrder];
-    [nextVisibleOrder[currentIndex], nextVisibleOrder[nextIndex]] = [nextVisibleOrder[nextIndex], nextVisibleOrder[currentIndex]];
-    const hiddenOrder = currentOrder.filter((item) => !HOME_PLATFORM_IDS.includes(item));
-    const nextOrder = [...nextVisibleOrder, ...hiddenOrder];
+    const nextOrder = [...currentOrder];
+    [nextOrder[currentIndex], nextOrder[nextIndex]] = [nextOrder[nextIndex], nextOrder[currentIndex]];
     updatePlatformOrder(nextOrder);
+  }
+
+  function updatePlatformVisibility(platformId) {
+    setPlatformVisibility((currentVisibility) => {
+      const nextVisibility = normalizePlatformVisibility(
+        { ...currentVisibility, [platformId]: currentVisibility[platformId] === false },
+        platforms
+      );
+      savePlatformVisibility(nextVisibility, platforms);
+      return nextVisibility;
+    });
   }
 
   function recordYouTubeSyncAttempt() {
@@ -1242,6 +1291,8 @@ export default function App() {
   function resetDemo() {
     updatePlatforms(initialPlatforms);
     updatePlatformOrder(DEFAULT_PLATFORM_ORDER);
+    setPlatformVisibility(normalizePlatformVisibility(DEFAULT_PLATFORM_VISIBILITY));
+    savePlatformVisibility(DEFAULT_PLATFORM_VISIBILITY);
     setActivePlatformId(null);
     setManualPlatformId(null);
     setShowAddChoice(false);
@@ -1300,8 +1351,10 @@ export default function App() {
     if (!window.confirm("确定清空 follow 数据并恢复初始状态吗？")) return;
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(PLATFORM_ORDER_STORAGE_KEY);
+    localStorage.removeItem(PLATFORM_VISIBILITY_STORAGE_KEY);
     setPlatforms(initialPlatforms);
     setPlatformOrder(normalizePlatformOrder(DEFAULT_PLATFORM_ORDER));
+    setPlatformVisibility(normalizePlatformVisibility(DEFAULT_PLATFORM_VISIBILITY));
     openHome();
   }
 
@@ -1343,6 +1396,7 @@ export default function App() {
           <HomePage
             platforms={platforms}
             platformOrder={platformOrder}
+            platformVisibility={platformVisibility}
             onConnect={openPlatformAction}
             onReset={resetDemo}
             onViewAll={(platformId) => setActivePlatformId(platformId)}
@@ -1361,7 +1415,9 @@ export default function App() {
           <SettingsPage
             platforms={platforms}
             platformOrder={platformOrder}
+            platformVisibility={platformVisibility}
             onMovePlatform={movePlatformOrder}
+            onTogglePlatformVisibility={updatePlatformVisibility}
             onExport={exportData}
             onImport={importData}
             onClear={clearData}
@@ -1413,13 +1469,21 @@ export default function App() {
           onSave={(formData) => updateCreator(editingPlatform.id, editingCreator.id, formData)}
         />
       )}
-      {showAddChoice && <AddChoiceModal onClose={() => setShowAddChoice(false)} onChoose={openAddChoice} />}
+      {showAddChoice && (
+        <AddChoiceModal
+          platforms={platforms}
+          platformOrder={platformOrder}
+          platformVisibility={platformVisibility}
+          onClose={() => setShowAddChoice(false)}
+          onChoose={openAddChoice}
+        />
+      )}
     </main>
   );
 }
 
-function HomePage({ platforms, platformOrder, onConnect, onReset, onViewAll }) {
-  const homePlatforms = getHomePlatforms(platforms, platformOrder);
+function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onReset, onViewAll }) {
+  const homePlatforms = getHomePlatforms(platforms, platformOrder, platformVisibility);
 
   return (
     <section className="overview">
@@ -1643,12 +1707,11 @@ function TabIcon({ name }) {
   );
 }
 
-function AddChoiceModal({ onClose, onChoose }) {
-  const options = [
-    { id: "youtube", label: "添加 YouTube 频道" },
-    { id: "instagram", label: "添加 Instagram 博主" },
-    { id: "bilibili", label: "添加 B站 UP 主" }
-  ];
+function AddChoiceModal({ platforms, platformOrder, platformVisibility, onClose, onChoose }) {
+  const options = getHomePlatforms(platforms, platformOrder, platformVisibility).map((platform) => ({
+    id: platform.id,
+    label: getAddChoiceText(platform)
+  }));
 
   return (
     <div className="modal-mask">
@@ -1824,19 +1887,53 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
   );
 }
 
-function SettingsPage({ platforms, platformOrder, onMovePlatform, onExport, onImport, onClear }) {
-  const orderedPlatforms = getVisibleOrderPlatforms(platforms, platformOrder);
+function SettingsPage({
+  platforms,
+  platformOrder,
+  platformVisibility,
+  onMovePlatform,
+  onTogglePlatformVisibility,
+  onExport,
+  onImport,
+  onClear
+}) {
+  const orderedPlatforms = getOrderedPlatforms(platforms, platformOrder);
 
   return (
     <section className="settings-page">
       <div className="settings-title"><span className="blue-oval">设置</span></div>
+      <section className="settings-card">
+        <h2>平台显示</h2>
+        <p>控制首页和添加弹窗显示哪些平台</p>
+        <div className="platform-order-list">
+          {orderedPlatforms.map((platform) => {
+            const isVisible = platformVisibility?.[platform.id] !== false;
+
+            return (
+              <div className="platform-order-item" key={platform.id}>
+                <strong>{platform.name}</strong>
+                <button
+                  className={`visibility-button ${isVisible ? "visible" : ""}`}
+                  type="button"
+                  onClick={() => onTogglePlatformVisibility(platform.id)}
+                >
+                  {isVisible ? "显示中" : "已隐藏"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
       <section className="settings-card">
         <h2>平台顺序</h2>
         <p>调整首页平台显示顺序</p>
         <div className="platform-order-list">
           {orderedPlatforms.map((platform, index) => (
             <div className="platform-order-item" key={platform.id}>
-              <strong>{platform.name}</strong>
+              <strong>
+                {platform.name}
+                {platformVisibility?.[platform.id] === false && <span className="hidden-platform-label">已隐藏</span>}
+              </strong>
               <div>
                 <button type="button" onClick={() => onMovePlatform(platform.id, -1)} disabled={index === 0}>
                   上移
