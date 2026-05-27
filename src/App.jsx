@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from "react";
 const STORAGE_KEY = "follow_blue_oval_app_v1";
 const AUTO_YOUTUBE_SYNC_STORAGE_KEY = "follow_last_auto_youtube_sync_at";
 const PLATFORM_ORDER_STORAGE_KEY = "follow_platform_order";
-const HOME_PLATFORM_IDS = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram"];
-const DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
+const HOME_PLATFORM_IDS = ["youtube", "instagram", "bilibili"];
+const DEFAULT_PLATFORM_ORDER = ["youtube", "instagram", "bilibili", "xiaohongshu", "weibo", "rss"];
+const LEGACY_DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
 const YOUTUBE_FEED_BASE_URL = "https://www.youtube.com/feeds/videos.xml?channel_id=";
 const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
@@ -175,7 +176,12 @@ function normalizePlatformOrder(order, platforms = initialPlatforms) {
 function readPlatformOrder() {
   try {
     const saved = localStorage.getItem(PLATFORM_ORDER_STORAGE_KEY);
-    return normalizePlatformOrder(saved ? JSON.parse(saved) : DEFAULT_PLATFORM_ORDER);
+    const parsedOrder = saved ? JSON.parse(saved) : DEFAULT_PLATFORM_ORDER;
+    const isLegacyDefault =
+      Array.isArray(parsedOrder) &&
+      parsedOrder.length === LEGACY_DEFAULT_PLATFORM_ORDER.length &&
+      parsedOrder.every((platformId, index) => platformId === LEGACY_DEFAULT_PLATFORM_ORDER[index]);
+    return normalizePlatformOrder(isLegacyDefault ? DEFAULT_PLATFORM_ORDER : parsedOrder);
   } catch {
     return normalizePlatformOrder(DEFAULT_PLATFORM_ORDER);
   }
@@ -603,6 +609,13 @@ function getHomePlatforms(platforms, platformOrder) {
     .filter(Boolean);
 }
 
+function getVisibleOrderPlatforms(platforms, platformOrder) {
+  return normalizePlatformOrder(platformOrder, platforms)
+    .filter((platformId) => HOME_PLATFORM_IDS.includes(platformId))
+    .map((platformId) => platforms.find((platform) => platform.id === platformId))
+    .filter(Boolean);
+}
+
 function getManualModalTitle(platform) {
   if (platform.id === "rss") return "添加 RSS 订阅源";
   if (platform.id === "youtube") return "添加 YouTube 频道";
@@ -666,13 +679,16 @@ export default function App() {
 
   function movePlatformOrder(platformId, direction) {
     const currentOrder = normalizePlatformOrder(platformOrder, platforms);
-    const currentIndex = currentOrder.indexOf(platformId);
+    const visibleOrder = currentOrder.filter((item) => HOME_PLATFORM_IDS.includes(item));
+    const currentIndex = visibleOrder.indexOf(platformId);
     const nextIndex = currentIndex + direction;
 
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentOrder.length) return;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= visibleOrder.length) return;
 
-    const nextOrder = [...currentOrder];
-    [nextOrder[currentIndex], nextOrder[nextIndex]] = [nextOrder[nextIndex], nextOrder[currentIndex]];
+    const nextVisibleOrder = [...visibleOrder];
+    [nextVisibleOrder[currentIndex], nextVisibleOrder[nextIndex]] = [nextVisibleOrder[nextIndex], nextVisibleOrder[currentIndex]];
+    const hiddenOrder = currentOrder.filter((item) => !HOME_PLATFORM_IDS.includes(item));
+    const nextOrder = [...nextVisibleOrder, ...hiddenOrder];
     updatePlatformOrder(nextOrder);
   }
 
@@ -1630,11 +1646,8 @@ function TabIcon({ name }) {
 function AddChoiceModal({ onClose, onChoose }) {
   const options = [
     { id: "youtube", label: "添加 YouTube 频道" },
-    { id: "bilibili", label: "添加 B站 UP 主" },
-    { id: "xiaohongshu", label: "添加小红书博主" },
-    { id: "weibo", label: "添加微博博主" },
     { id: "instagram", label: "添加 Instagram 博主" },
-    { id: "rss", label: "高级：添加 RSS 订阅源" }
+    { id: "bilibili", label: "添加 B站 UP 主" }
   ];
 
   return (
@@ -1812,9 +1825,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
 }
 
 function SettingsPage({ platforms, platformOrder, onMovePlatform, onExport, onImport, onClear }) {
-  const orderedPlatforms = normalizePlatformOrder(platformOrder, platforms)
-    .map((platformId) => platforms.find((platform) => platform.id === platformId))
-    .filter(Boolean);
+  const orderedPlatforms = getVisibleOrderPlatforms(platforms, platformOrder);
 
   return (
     <section className="settings-page">
