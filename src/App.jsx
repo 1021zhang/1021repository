@@ -687,6 +687,32 @@ function getStatusText(platform, unreadCreators) {
   return `已添加 ${creatorCount} 位博主，暂无新更新`;
 }
 
+function getHomeStatusText(platform, unreadCreators) {
+  const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
+  const prefix =
+    platform.id === "youtube"
+      ? "自动同步"
+      : platform.id === "rss"
+        ? "高级订阅源"
+        : "手动入口";
+
+  if (platform.id === "youtube") {
+    if (unreadCreators.length > 0) return `${prefix} · ${unreadCreators.length} 位博主更新`;
+    if (creatorCount > 0) return `${prefix} · 暂无新更新`;
+    return `${prefix} · 还没添加频道`;
+  }
+
+  if (platform.id === "bilibili") {
+    return creatorCount > 0 ? `${prefix} · 已添加 ${creatorCount} 位 UP 主` : `${prefix} · 还没添加 UP 主`;
+  }
+
+  if (platform.id === "rss") {
+    return creatorCount > 0 ? `${prefix} · 已添加 ${creatorCount} 个订阅源` : `${prefix} · 还没添加订阅源`;
+  }
+
+  return creatorCount > 0 ? `${prefix} · 已添加 ${creatorCount} 位博主` : `${prefix} · 还没添加博主`;
+}
+
 function getActionText(platform) {
   if (platform.id === "youtube") return "添加 YouTube 频道";
   if (platform.id === "bilibili") return "添加 B站 UP 主";
@@ -1612,6 +1638,7 @@ export default function App() {
             platformVisibility={platformVisibility}
             onConnect={openPlatformAction}
             onOpenUpdate={openExternalLink}
+            onOpenCreator={openFollowedCreatorHomepage}
             onReset={resetDemo}
             onViewAll={(platformId) => setActivePlatformId(platformId)}
           />
@@ -1701,7 +1728,7 @@ export default function App() {
   );
 }
 
-function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onOpenUpdate, onReset, onViewAll }) {
+function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onOpenUpdate, onOpenCreator, onReset, onViewAll }) {
   const homePlatforms = getHomePlatforms(platforms, platformOrder, platformVisibility);
 
   return (
@@ -1720,6 +1747,7 @@ function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onO
             platform={platform}
             onConnect={() => onConnect(platform)}
             onOpenUpdate={onOpenUpdate}
+            onOpenCreator={onOpenCreator}
             onViewAll={() => onViewAll(platform.id)}
           />
         ))}
@@ -1728,20 +1756,32 @@ function HomePage({ platforms, platformOrder, platformVisibility, onConnect, onO
   );
 }
 
-function PlatformCard({ platform, onConnect, onOpenUpdate, onViewAll }) {
+function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onViewAll }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const unreadCreators = getUnreadCreators(platform);
   const previewCreators = unreadCreators.slice(0, 2);
   const restCount = unreadCreators.length - previewCreators.length;
-  const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
-  const statusText = getStatusText(platform, unreadCreators);
+  const visibleCreators = platform.creators.filter((creator) => creator.selected !== false);
+  const creatorCount = visibleCreators.length;
+  const quickCreators = visibleCreators.slice(0, 5);
+  const hiddenCreatorCount = creatorCount - quickCreators.length;
+  const statusText = getHomeStatusText(platform, unreadCreators);
   const supplementText = getPlatformSupplementText(platform, creatorCount);
+  const shouldShowUnreadUpdates = unreadCreators.length > 0;
+  const shouldShowQuickCreators = isExpanded && creatorCount > 0;
 
   return (
     <article className="platform-card">
       <div className="platform-card-head">
-        <div className="platform-title">
+        <button
+          className="platform-title expand-trigger"
+          type="button"
+          onClick={() => setIsExpanded((current) => !current)}
+          aria-expanded={isExpanded}
+        >
           <span className="blue-oval">{platform.name}</span>
-        </div>
+          <span className="expand-arrow">{isExpanded ? "∧" : "∨"}</span>
+        </button>
 
         {creatorCount === 0 ? (
           <button className="view-all" type="button" onClick={onConnect}>{getActionText(platform)}</button>
@@ -1753,7 +1793,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onViewAll }) {
       <p className="count-text platform-status">{statusText}</p>
       <p className="platform-note">{supplementText}</p>
 
-      {unreadCreators.length > 0 && (
+      {shouldShowUnreadUpdates && (
         <div className="creator-list">
           {previewCreators.map((creator) => (
             <CreatorRow
@@ -1766,8 +1806,36 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onViewAll }) {
               }}
             />
           ))}
-          {restCount > 0 && (
-            <button className="more-line" type="button" onClick={onViewAll}>还有 {restCount} 位更新⌄</button>
+          <button className="more-line" type="button" onClick={onViewAll}>
+            {restCount > 0 ? `还有 ${restCount} 位更新，查看全部 →` : "查看全部 →"}
+          </button>
+        </div>
+      )}
+
+      {shouldShowQuickCreators && (
+        <div className="quick-creator-list">
+          {quickCreators.map((creator) => {
+            const hasHomepage = !isMockOrEmptyUrl(creator.homepageUrl);
+
+            return (
+              <button
+                className="quick-creator-row"
+                type="button"
+                key={creator.id}
+                onClick={() => {
+                  if (hasHomepage) onOpenCreator(platform, creator);
+                }}
+                disabled={!hasHomepage}
+              >
+                <span>{creator.name}</span>
+                {hasHomepage ? <strong>进入主页 →</strong> : <em>暂无主页链接</em>}
+              </button>
+            );
+          })}
+          {hiddenCreatorCount > 0 && (
+            <button className="more-line quick-more-line" type="button" onClick={onViewAll}>
+              查看全部 →
+            </button>
           )}
         </div>
       )}
