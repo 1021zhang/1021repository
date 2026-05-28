@@ -661,17 +661,6 @@ select:focus {
   color: #c53a3a;
 }
 
-.settings-field {
-  margin-top: 14px;
-}
-
-.settings-save-message {
-  margin: 10px 0 0;
-  color: var(--blue-dark);
-  font-size: 13px;
-  font-weight: 900;
-}
-
 .platform-order-list {
   margin-top: 14px;
 }
@@ -745,6 +734,52 @@ select:focus {
   margin: 0 0 10px;
   font-size: 18px;
   font-weight: 950;
+}
+
+.sync-platform-list {
+  display: grid;
+  gap: 12px;
+}
+
+.sync-platform-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sync-platform-item:last-child {
+  border-bottom: 0;
+}
+
+.sync-platform-item strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.sync-platform-item p {
+  margin: 3px 0;
+}
+
+.sync-small-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1.5px solid var(--blue);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--blue-dark);
+  font-size: 12px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.sync-small-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
 }
 
 .sync-message {

@@ -1,3 +1,5 @@
+// Experimental B站 RSSHub proxy. The frontend currently treats B站 as a manual-entry platform,
+// so this API is kept for future testing and is not called by the app UI.
 function decodeXml(value = "") {
   return value
     .replace(/<!\[CDATA\[(.*?)\]\]>/gs, "$1")
