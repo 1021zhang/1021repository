@@ -687,9 +687,9 @@ function getStatusText(platform, unreadCreators) {
   return `已添加 ${creatorCount} 位博主，暂无新更新`;
 }
 
-function getHomeStatusText(platform, unreadCreators) {
+function getHomeStatusInfo(platform, unreadCreators) {
   const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
-  const prefix =
+  const label =
     platform.id === "youtube"
       ? "自动同步"
       : platform.id === "rss"
@@ -697,20 +697,20 @@ function getHomeStatusText(platform, unreadCreators) {
         : "手动入口";
 
   if (platform.id === "youtube") {
-    if (unreadCreators.length > 0) return `${prefix} · ${unreadCreators.length} 位博主更新`;
-    if (creatorCount > 0) return `${prefix} · 暂无新更新`;
-    return `${prefix} · 还没添加频道`;
+    if (unreadCreators.length > 0) return { label, text: `${unreadCreators.length} 位博主更新` };
+    if (creatorCount > 0) return { label, text: "暂无新更新" };
+    return { label, text: `已添加 ${creatorCount} 个频道` };
   }
 
   if (platform.id === "bilibili") {
-    return creatorCount > 0 ? `${prefix} · 已添加 ${creatorCount} 位 UP 主` : `${prefix} · 还没添加 UP 主`;
+    return { label, text: creatorCount > 0 ? `已添加 ${creatorCount} 位 UP 主` : "还没添加 UP 主" };
   }
 
   if (platform.id === "rss") {
-    return creatorCount > 0 ? `${prefix} · 已添加 ${creatorCount} 个订阅源` : `${prefix} · 还没添加订阅源`;
+    return { label, text: creatorCount > 0 ? `已添加 ${creatorCount} 个订阅源` : "还没添加订阅源" };
   }
 
-  return creatorCount > 0 ? `${prefix} · 已添加 ${creatorCount} 位博主` : `${prefix} · 还没添加博主`;
+  return { label, text: creatorCount > 0 ? `已添加 ${creatorCount} 位博主` : "还没添加博主" };
 }
 
 function getActionText(platform) {
@@ -1769,7 +1769,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
   const creatorCount = visibleCreators.length;
   const quickCreators = visibleCreators.slice(0, 5);
   const hiddenCreatorCount = creatorCount - quickCreators.length;
-  const statusText = getHomeStatusText(platform, unreadCreators);
+  const statusInfo = getHomeStatusInfo(platform, unreadCreators);
   const supplementText = getPlatformSupplementText(platform, creatorCount);
   const shouldShowUnreadUpdates = unreadCreators.length > 0;
   const shouldShowQuickCreators = isExpanded && creatorCount > 0;
@@ -1788,13 +1788,18 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
         </button>
 
         {creatorCount === 0 ? (
-          <button className="view-all" type="button" onClick={onConnect}>{getActionText(platform)}</button>
+          <button className="card-add-button" type="button" onClick={onConnect}>{getActionText(platform)}</button>
         ) : (
           <button className="view-all" type="button" onClick={onViewAll}>查看全部 →</button>
         )}
       </div>
 
-      <p className="count-text platform-status">{statusText}</p>
+      <p className="count-text platform-status">
+        <span className={`status-chip status-chip-${platform.id === "youtube" ? "auto" : platform.id === "rss" ? "advanced" : "manual"}`}>
+          {statusInfo.label}
+        </span>
+        <span>{statusInfo.text}</span>
+      </p>
       <p className="platform-note">{supplementText}</p>
 
       {shouldShowUnreadUpdates && (
@@ -2210,67 +2215,107 @@ function SettingsPage({
   onClear
 }) {
   const orderedPlatforms = getOrderedPlatforms(platforms, platformOrder);
+  const [openGroups, setOpenGroups] = useState({
+    platform: true,
+    data: false,
+    about: false
+  });
+
+  function toggleGroup(groupId) {
+    setOpenGroups((current) => ({ ...current, [groupId]: !current[groupId] }));
+  }
 
   return (
     <section className="settings-page">
       <div className="settings-title"><span className="blue-oval">设置</span></div>
-      <section className="settings-card">
-        <h2>平台显示</h2>
-        <p>控制首页和添加弹窗显示哪些平台</p>
-        <div className="platform-order-list">
-          {orderedPlatforms.map((platform) => {
-            const isVisible = platformVisibility?.[platform.id] !== false;
 
-            return (
-              <div className="platform-order-item" key={platform.id}>
-                <strong>{platform.name}</strong>
-                <button
-                  className={`visibility-button ${isVisible ? "visible" : ""}`}
-                  type="button"
-                  onClick={() => onTogglePlatformVisibility(platform.id)}
-                >
-                  {isVisible ? "显示中" : "已隐藏"}
-                </button>
+      <section className="settings-card settings-group">
+        <button
+          className="settings-group-head"
+          type="button"
+          onClick={() => toggleGroup("platform")}
+          aria-expanded={openGroups.platform}
+        >
+          <h2>平台管理</h2>
+          <span>{openGroups.platform ? "∧" : "∨"}</span>
+        </button>
+        {openGroups.platform && (
+          <div className="settings-group-body">
+            <section className="settings-subsection">
+              <h3>平台显示</h3>
+              <p>控制首页和添加弹窗显示哪些平台</p>
+              <div className="platform-order-list">
+                {orderedPlatforms.map((platform) => {
+                  const isVisible = platformVisibility?.[platform.id] !== false;
+
+                  return (
+                    <div className="platform-order-item" key={platform.id}>
+                      <strong>{platform.name}</strong>
+                      <button
+                        className={`visibility-button ${isVisible ? "visible" : ""}`}
+                        type="button"
+                        onClick={() => onTogglePlatformVisibility(platform.id)}
+                      >
+                        {isVisible ? "显示中" : "已隐藏"}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
-      </section>
-      <section className="settings-card">
-        <h2>平台顺序</h2>
-        <p>调整首页平台显示顺序</p>
-        <div className="platform-order-list">
-          {orderedPlatforms.map((platform, index) => (
-            <div className="platform-order-item" key={platform.id}>
-              <strong>
-                {platform.name}
-                {platformVisibility?.[platform.id] === false && <span className="hidden-platform-label">已隐藏</span>}
-              </strong>
-              <div>
-                <button type="button" onClick={() => onMovePlatform(platform.id, -1)} disabled={index === 0}>
-                  上移
-                </button>
-                <button type="button" onClick={() => onMovePlatform(platform.id, 1)} disabled={index === orderedPlatforms.length - 1}>
-                  下移
-                </button>
+            </section>
+
+            <section className="settings-subsection">
+              <h3>平台顺序</h3>
+              <p>调整首页平台显示顺序</p>
+              <div className="platform-order-list">
+                {orderedPlatforms.map((platform, index) => (
+                  <div className="platform-order-item" key={platform.id}>
+                    <strong>
+                      {platform.name}
+                      {platformVisibility?.[platform.id] === false && <span className="hidden-platform-label">已隐藏</span>}
+                    </strong>
+                    <div>
+                      <button type="button" onClick={() => onMovePlatform(platform.id, -1)} disabled={index === 0}>
+                        上移
+                      </button>
+                      <button type="button" onClick={() => onMovePlatform(platform.id, 1)} disabled={index === orderedPlatforms.length - 1}>
+                        下移
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
-        </div>
+            </section>
+          </div>
+        )}
       </section>
-      <section className="settings-card">
-        <h2>数据管理</h2>
-        <div className="settings-actions">
-          <button type="button" onClick={onExport}>导出数据</button>
-          <label className="import-button">导入数据<input type="file" accept="application/json,.json" onChange={onImport} /></label>
-          <button className="danger-button" type="button" onClick={onClear}>清空数据</button>
-        </div>
+
+      <section className="settings-card settings-group">
+        <button className="settings-group-head" type="button" onClick={() => toggleGroup("data")} aria-expanded={openGroups.data}>
+          <h2>数据管理</h2>
+          <span>{openGroups.data ? "∧" : "∨"}</span>
+        </button>
+        {openGroups.data && (
+          <div className="settings-actions settings-group-body">
+            <button type="button" onClick={onExport}>导出数据</button>
+            <label className="import-button">导入数据<input type="file" accept="application/json,.json" onChange={onImport} /></label>
+            <button className="danger-button" type="button" onClick={onClear}>清空数据</button>
+          </div>
+        )}
       </section>
-      <section className="settings-card">
-        <h2>关于</h2>
-        <p>follow v0.1</p>
-        <p>个人追更小工具</p>
-        <p>当前版本为 PWA 原型</p>
+
+      <section className="settings-card settings-group">
+        <button className="settings-group-head" type="button" onClick={() => toggleGroup("about")} aria-expanded={openGroups.about}>
+          <h2>关于 follow</h2>
+          <span>{openGroups.about ? "∧" : "∨"}</span>
+        </button>
+        {openGroups.about && (
+          <div className="settings-group-body">
+            <p>follow v0.1</p>
+            <p>个人追更小工具</p>
+            <p>当前版本为 PWA 原型</p>
+          </div>
+        )}
       </section>
     </section>
   );

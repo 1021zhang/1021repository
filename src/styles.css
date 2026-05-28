@@ -259,7 +259,7 @@ button:focus-visible {
   margin: 0 0 4px;
 }
 
-.view-all,
+.card-add-button,
 .open-content,
 .submit-button,
 .settings-actions button,
@@ -275,10 +275,57 @@ button:focus-visible {
 }
 
 .view-all {
+  min-height: 40px;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--blue-dark);
+  font-size: 13px;
+  font-weight: 850;
+  padding: 8px 0 8px 12px;
+  white-space: normal;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.view-all:active {
+  opacity: 0.72;
+}
+
+.card-add-button {
   max-width: 100%;
   padding: 0 12px;
   font-size: 13px;
   white-space: normal;
+}
+
+.platform-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f3f5;
+  color: #777777;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.status-chip-auto {
+  background: #eef7ff;
+  color: var(--blue-dark);
+}
+
+.status-chip-advanced {
+  background: #f4f4f4;
+  color: #666666;
 }
 
 .creator-row {
@@ -767,6 +814,64 @@ select:focus {
 
 .settings-card + .settings-card {
   margin-top: 14px;
+}
+
+.settings-group {
+  padding: 0;
+  overflow: hidden;
+}
+
+.settings-group-head {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  background: #ffffff;
+  color: var(--black);
+  padding: 17px 18px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-group-head:active {
+  opacity: 0.72;
+}
+
+.settings-group-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.settings-group-head span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(47, 150, 239, 0.28);
+  border-radius: 50%;
+  color: var(--blue-dark);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.settings-group-body {
+  padding: 0 18px 18px;
+}
+
+.settings-subsection + .settings-subsection {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-subsection h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 950;
 }
 
 .settings-actions .danger-button {
