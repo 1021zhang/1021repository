@@ -756,6 +756,18 @@ select:focus {
   color: #777777;
 }
 
+.diagnostics-toggle {
+  width: fit-content;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1.5px solid #d8e9fb;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--blue-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .feed-test-button {
   width: fit-content;
   margin-top: 4px;
