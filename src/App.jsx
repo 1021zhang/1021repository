@@ -1650,15 +1650,12 @@ export default function App() {
 
         {activeTab === "sync" && (
           <SyncPage
-            platforms={platforms}
-            platformVisibility={platformVisibility}
             youtubePlatform={youtubePlatform}
             syncState={youtubeSyncState}
             globalSyncState={globalSyncState}
             lastGlobalSyncAt={lastGlobalSyncAt}
             lastAutoYouTubeSyncAt={lastAutoYouTubeSyncAt}
             onSyncAll={syncAllPlatforms}
-            onYouTubeSync={() => syncYouTubeFeeds()}
           />
         )}
         {activeTab === "settings" && (
@@ -2322,22 +2319,18 @@ function SettingsPage({
 }
 
 function SyncPage({
-  platforms,
-  platformVisibility,
   youtubePlatform,
   syncState,
   globalSyncState,
   lastGlobalSyncAt,
   lastAutoYouTubeSyncAt,
-  onSyncAll,
-  onYouTubeSync
+  onSyncAll
 }) {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const isSyncingAll = globalSyncState.status === "syncing";
   const isYouTubeSyncing = syncState.status === "syncing";
   const autoSyncText = getAutoYouTubeSyncText(lastAutoYouTubeSyncAt);
   const debugInfo = globalSyncState.debugInfo || syncState.debugInfo;
-  const syncPlatforms = platforms.filter((platform) => platform.id !== "rss" || platformVisibility?.rss !== false);
   const debugItems = debugInfo
     ? [
         ["失败频道名", debugInfo.creatorName],
@@ -2360,21 +2353,6 @@ function SyncPage({
       ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
     : [];
 
-  function getSyncPlatformCountText(platform) {
-    const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
-
-    if (platform.id === "youtube") return `已添加 ${creatorCount} 个频道`;
-    if (platform.id === "bilibili") return `已添加 ${creatorCount} 位 UP 主`;
-    if (platform.id === "rss") return `已添加 ${creatorCount} 个订阅源`;
-    return `已添加 ${creatorCount} 位博主`;
-  }
-
-  function getSyncPlatformStatusText(platform) {
-    if (platform.id === "youtube") return "自动同步";
-    if (platform.id === "rss") return "高级订阅源，暂未启用同步";
-    return "手动入口，不参与同步";
-  }
-
   return (
     <section className="simple-page">
       <span className="blue-oval">同步</span>
@@ -2387,6 +2365,7 @@ function SyncPage({
         <button className="submit-button" type="button" onClick={onSyncAll} disabled={isSyncingAll || isYouTubeSyncing}>
           {isSyncingAll ? "同步中..." : "同步全部"}
         </button>
+        <p className="sync-scope-note">目前仅 YouTube 参与同步，其他平台作为手动入口使用。</p>
         {globalSyncState.message && <p className="sync-message">{globalSyncState.message}</p>}
         {debugInfo && (
           <div className="sync-debug">
@@ -2413,27 +2392,6 @@ function SyncPage({
             )}
           </div>
         )}
-      </section>
-      <section className="sync-card">
-        <h3>平台状态</h3>
-        <div className="sync-platform-list">
-          {syncPlatforms.map((platform) => (
-            <div className="sync-platform-item" key={platform.id}>
-              <div>
-                <strong>{platform.name}</strong>
-                <p>{getSyncPlatformCountText(platform)}</p>
-                <p>状态：{getSyncPlatformStatusText(platform)}</p>
-                {platform.id === "youtube" && <p>上次同步：{formatSyncTime(youtubePlatform?.lastSyncedAt)}</p>}
-              </div>
-              {platform.id === "youtube" && (
-                <button className="sync-small-button" type="button" onClick={onYouTubeSync} disabled={isYouTubeSyncing || isSyncingAll}>
-                  {isYouTubeSyncing ? "同步中..." : "单独同步 YouTube"}
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        {syncState.message && <p className="sync-message">{syncState.message}</p>}
       </section>
     </section>
   );

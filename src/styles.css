@@ -954,56 +954,17 @@ select:focus {
   font-weight: 950;
 }
 
-.sync-platform-list {
-  display: grid;
-  gap: 12px;
-}
-
-.sync-platform-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 14px;
-  align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.sync-platform-item:last-child {
-  border-bottom: 0;
-}
-
-.sync-platform-item strong {
-  display: block;
-  margin-bottom: 5px;
-  font-size: 15px;
-  font-weight: 950;
-}
-
-.sync-platform-item p {
-  margin: 3px 0;
-}
-
-.sync-small-button {
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1.5px solid var(--blue);
-  border-radius: 999px;
-  background: #ffffff;
-  color: var(--blue-dark);
-  font-size: 12px;
-  font-weight: 950;
-  white-space: nowrap;
-}
-
-.sync-small-button:disabled {
-  opacity: 0.58;
-  cursor: not-allowed;
-}
-
 .sync-message {
   margin-top: 12px;
   color: var(--blue-dark);
   font-weight: 900;
+}
+
+.sync-scope-note {
+  margin: 10px 0 0;
+  color: #a0a0a0;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .sync-debug {
