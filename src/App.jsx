@@ -26,6 +26,10 @@ const initialPlatforms = [
   { id: "rss", name: "RSS", syncType: "rss", homepageUrl: "", connected: false, creators: [] }
 ];
 
+function usesCreatorSyncState(platformId) {
+  return platformId === "youtube" || platformId === "bilibili";
+}
+
 function getYouTubeFeedUrl(channelId) {
   const normalizedChannelId = String(channelId || "").trim();
   return normalizedChannelId ? `${YOUTUBE_FEED_BASE_URL}${encodeURIComponent(normalizedChannelId)}` : "";
@@ -70,24 +74,32 @@ function normalizeCreators(platform) {
     return platform.creators.map((creator) => {
       const youtubeSourceId = platform.id === "youtube" ? normalizeYouTubeChannelId(creator.sourceId) : creator.sourceId;
       const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(creator.homepageUrl || creator.handle || "") : null;
+      const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(creator.uid || creator.sourceId || creator.homepageUrl) : "";
 
       return {
         ...creator,
         avatar: creator.avatar || creator.name?.slice(0, 1).toUpperCase() || "?",
-        sourceId: platform.id === "youtube" ? youtubeSourceId || youtubeInfo?.sourceId || "" : creator.sourceId,
+        sourceId:
+          platform.id === "youtube"
+            ? youtubeSourceId || youtubeInfo?.sourceId || ""
+            : platform.id === "bilibili"
+              ? bilibiliUid
+              : creator.sourceId,
         feedUrl:
           platform.id === "youtube" && youtubeSourceId
             ? creator.feedUrl || getYouTubeFeedUrl(youtubeSourceId)
             : creator.feedUrl || youtubeInfo?.feedUrl,
         handle: platform.id === "youtube" ? creator.handle || youtubeInfo?.handle || "" : creator.handle,
+        uid: platform.id === "bilibili" ? bilibiliUid : creator.uid,
+        homepageUrl: platform.id === "bilibili" && bilibiliUid ? normalizeBilibiliHomepage(bilibiliUid) : creator.homepageUrl,
         knownGoodFeedUrl: platform.id === "youtube" ? normalizeYouTubeFeedUrl(creator.knownGoodFeedUrl) : creator.knownGoodFeedUrl,
         knownGoodSourceId:
           platform.id === "youtube" ? normalizeYouTubeChannelId(creator.knownGoodSourceId) : creator.knownGoodSourceId,
-        lastSuccessfulSyncAt: platform.id === "youtube" ? creator.lastSuccessfulSyncAt || "" : creator.lastSuccessfulSyncAt,
-        syncFailCount: platform.id === "youtube" ? Number(creator.syncFailCount || 0) : creator.syncFailCount,
-        syncStatus: platform.id === "youtube" ? creator.syncStatus || "active" : creator.syncStatus,
-        lastSyncError: platform.id === "youtube" ? creator.lastSyncError || null : creator.lastSyncError,
-        lastSyncErrorAt: platform.id === "youtube" ? creator.lastSyncErrorAt || "" : creator.lastSyncErrorAt,
+        lastSuccessfulSyncAt: usesCreatorSyncState(platform.id) ? creator.lastSuccessfulSyncAt || "" : creator.lastSuccessfulSyncAt,
+        syncFailCount: usesCreatorSyncState(platform.id) ? Number(creator.syncFailCount || 0) : creator.syncFailCount,
+        syncStatus: usesCreatorSyncState(platform.id) ? creator.syncStatus || "active" : creator.syncStatus,
+        lastSyncError: usesCreatorSyncState(platform.id) ? creator.lastSyncError || null : creator.lastSyncError,
+        lastSyncErrorAt: usesCreatorSyncState(platform.id) ? creator.lastSyncErrorAt || "" : creator.lastSyncErrorAt,
         selected: creator.selected !== false,
         updates: Array.isArray(creator.updates) ? creator.updates : []
       };
@@ -256,11 +268,19 @@ function normalizeExternalUrl(url) {
 }
 
 function normalizeBilibiliHomepage(input) {
+  const uid = extractBilibiliUid(input);
+  if (uid) return `https://space.bilibili.com/${uid}`;
+  return normalizeExternalUrl(input);
+}
+
+function extractBilibiliUid(input) {
   if (!input) return "";
   const trimmedInput = String(input).trim();
   if (!trimmedInput) return "";
-  if (/^\d+$/.test(trimmedInput)) return `https://space.bilibili.com/${trimmedInput}`;
-  return normalizeExternalUrl(trimmedInput);
+  const directMatch = trimmedInput.match(/^\d+$/);
+  if (directMatch) return directMatch[0];
+  const spaceMatch = trimmedInput.match(/space\.bilibili\.com\/(\d+)/i);
+  return spaceMatch ? spaceMatch[1] : "";
 }
 
 function isMockOrEmptyUrl(url) {
@@ -656,12 +676,12 @@ function getActionText(platform) {
 
 function getConnectedNote(platform) {
   if (platform.id === "rss") return "等待下一次同步";
-  if (platform.id === "bilibili") return "手动添加链接 / 后续尝试同步";
+  if (platform.id === "bilibili") return "实验同步中，失败时仍可作为主页入口";
   return "等待下一次更新";
 }
 
 function getPlatformSupplementText(platform, creatorCount) {
-  if (platform.id === "bilibili") return "手动添加链接 / 后续尝试同步";
+  if (platform.id === "bilibili") return "实验同步中，失败时仍可作为主页入口";
   if (creatorCount > 0) return getConnectedNote(platform);
   if (platform.id === "youtube") return "先添加频道，有更新会显示在这里";
   return "先添加博主，有更新会显示在这里";
@@ -728,6 +748,7 @@ export default function App() {
   const [showAddChoice, setShowAddChoice] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
   const [youtubeSyncState, setYouTubeSyncState] = useState({ status: "idle", message: "", debugInfo: null });
+  const [bilibiliSyncState, setBilibiliSyncState] = useState({ status: "idle", message: "", debugInfo: null });
   const [lastAutoYouTubeSyncAt, setLastAutoYouTubeSyncAt] = useState(readLastAutoYouTubeSyncAt);
   const [platformOrder, setPlatformOrder] = useState(() => normalizePlatformOrder(readPlatformOrder(), platforms));
   const [platformVisibility, setPlatformVisibility] = useState(() => normalizePlatformVisibility(readPlatformVisibility(), platforms));
@@ -739,6 +760,7 @@ export default function App() {
   const editingPlatform = platforms.find((platform) => platform.id === editingCreatorContext?.platformId);
   const editingCreator = editingPlatform?.creators.find((creator) => creator.id === editingCreatorContext?.creatorId);
   const youtubePlatform = platforms.find((platform) => platform.id === "youtube");
+  const bilibiliPlatform = platforms.find((platform) => platform.id === "bilibili");
 
   function updatePlatforms(nextPlatforms) {
     const normalizedPlatforms = normalizePlatforms(nextPlatforms);
@@ -975,9 +997,14 @@ export default function App() {
             if (creator.id !== creatorId) return creator;
 
             const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(formData.homepageUrl) : null;
+            const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(formData.homepageUrl) : "";
             const creatorName =
               formData.creator.trim() ||
-              (platform.id === "youtube" ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道" : "");
+              (platform.id === "youtube"
+                ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道"
+                : platform.id === "bilibili" && bilibiliUid
+                  ? `B站用户 ${bilibiliUid}`
+                  : "");
             const channelId = youtubeInfo?.sourceId || "";
             const homepageUrl =
               platform.id === "youtube"
@@ -991,15 +1018,16 @@ export default function App() {
               name: creatorName,
               avatar: creatorName.slice(0, 1).toUpperCase(),
               homepageUrl,
-              sourceId: platform.id === "youtube" ? channelId : creator.sourceId,
+              sourceId: platform.id === "youtube" ? channelId : platform.id === "bilibili" ? bilibiliUid : creator.sourceId,
               feedUrl: platform.id === "youtube" ? youtubeInfo.feedUrl : creator.feedUrl,
               handle: platform.id === "youtube" ? youtubeInfo.handle : creator.handle,
+              uid: platform.id === "bilibili" ? bilibiliUid : creator.uid,
               knownGoodFeedUrl: platform.id === "youtube" ? "" : creator.knownGoodFeedUrl,
               knownGoodSourceId: platform.id === "youtube" ? "" : creator.knownGoodSourceId,
-              syncFailCount: platform.id === "youtube" ? 0 : creator.syncFailCount,
-              syncStatus: platform.id === "youtube" ? "active" : creator.syncStatus,
-              lastSyncError: platform.id === "youtube" ? null : creator.lastSyncError,
-              lastSyncErrorAt: platform.id === "youtube" ? "" : creator.lastSyncErrorAt
+              syncFailCount: usesCreatorSyncState(platform.id) ? 0 : creator.syncFailCount,
+              syncStatus: usesCreatorSyncState(platform.id) ? "active" : creator.syncStatus,
+              lastSyncError: usesCreatorSyncState(platform.id) ? null : creator.lastSyncError,
+              lastSyncErrorAt: usesCreatorSyncState(platform.id) ? "" : creator.lastSyncErrorAt
             };
           })
         };
@@ -1301,15 +1329,197 @@ export default function App() {
     return { addedCount: updatedCreatorCount, failedCount };
   }
 
+  async function syncBilibiliFeeds() {
+    const bilibili = platforms.find((platform) => platform.id === "bilibili");
+    const creators = bilibili?.creators.filter((creator) => creator.selected !== false) || [];
+    const syncItems = creators
+      .map((creator) => ({ creator, uid: extractBilibiliUid(creator.uid || creator.sourceId || creator.homepageUrl) }))
+      .filter(({ uid }) => Boolean(uid));
+
+    if (!bilibili) return { addedCount: 0, failedCount: 0 };
+
+    setBilibiliSyncState({ status: "syncing", message: "同步中...", debugInfo: null });
+
+    if (syncItems.length === 0) {
+      const syncedAt = new Date().toISOString();
+      updatePlatforms(platforms.map((platform) => (platform.id === "bilibili" ? { ...platform, lastSyncedAt: syncedAt } : platform)));
+      setBilibiliSyncState({ status: "success", message: "还没有可同步的 B站 UP 主，请先添加 UID 或主页链接。", debugInfo: null });
+      return { addedCount: 0, failedCount: 0 };
+    }
+
+    const results = await Promise.all(
+      syncItems.map(async ({ creator, uid }) => {
+        const feedUrl = `https://rsshub.app/bilibili/user/video/${encodeURIComponent(uid)}`;
+
+        try {
+          const response = await fetch(`/api/bilibili-feed?uid=${encodeURIComponent(uid)}`);
+          const data = await response.json().catch(() => ({}));
+
+          if (!response.ok || !Array.isArray(data.videos) || data.videos.length === 0) {
+            return {
+              creatorId: creator.id,
+              failed: true,
+              syncFailCount: Number(creator.syncFailCount || 0) + 1,
+              errorCode: data.error || "unknown",
+              debugInfo: {
+                creatorName: creator.name,
+                uid,
+                feedUrl: data.feedUrl || feedUrl,
+                error: data.error || "unknown",
+                status: data.status ?? response.status,
+                statusText: data.statusText || response.statusText,
+                responsePreview: (data.responsePreview || "").slice(0, 200)
+              }
+            };
+          }
+
+          return {
+            creatorId: creator.id,
+            uid: data.uid || uid,
+            feedUrl: data.feedUrl || feedUrl,
+            videos: data.videos,
+            failed: false,
+            syncFailCount: 0,
+            debugInfo: null
+          };
+        } catch (error) {
+          return {
+            creatorId: creator.id,
+            failed: true,
+            syncFailCount: Number(creator.syncFailCount || 0) + 1,
+            errorCode: "network_request_failed",
+            debugInfo: {
+              creatorName: creator.name,
+              uid,
+              feedUrl,
+              error: "network_request_failed",
+              status: "",
+              statusText: "",
+              responsePreview: error instanceof Error ? error.message : String(error)
+            }
+          };
+        }
+      })
+    );
+
+    const resultMap = new Map(results.map((result) => [result.creatorId, result]));
+    let updatedCreatorCount = 0;
+    const failedResults = results.filter((result) => result.failed);
+    const failedCount = failedResults.length;
+    const syncedAt = new Date().toISOString();
+
+    const nextPlatforms = platforms.map((platform) => {
+      if (platform.id !== "bilibili") return platform;
+
+      return {
+        ...platform,
+        connected: platform.creators.length > 0,
+        lastSyncedAt: syncedAt,
+        lastSyncFailedCount: failedCount,
+        creators: platform.creators.map((creator) => {
+          const result = resultMap.get(creator.id);
+          if (!result) return creator;
+
+          if (result.failed) {
+            const nextFailCount = Number(creator.syncFailCount || 0) + 1;
+
+            return {
+              ...creator,
+              syncFailCount: nextFailCount,
+              syncStatus: nextFailCount >= 3 ? "needs_attention" : "unstable",
+              lastSyncError: result.errorCode || "unknown",
+              lastSyncErrorAt: syncedAt
+            };
+          }
+
+          const latestVideo = result.videos[0];
+          const uid = extractBilibiliUid(result.uid || creator.uid || creator.sourceId || creator.homepageUrl);
+          const baseFields = {
+            uid,
+            sourceId: uid,
+            homepageUrl: uid ? normalizeBilibiliHomepage(uid) : creator.homepageUrl,
+            lastSuccessfulSyncAt: syncedAt,
+            syncFailCount: 0,
+            syncStatus: "active",
+            lastSyncError: null,
+            lastSyncErrorAt: ""
+          };
+
+          if (!latestVideo) return { ...creator, ...baseFields };
+
+          const existingKeys = new Set(
+            creator.updates.flatMap((update) => [update.id, normalizeExternalUrl(update.url)]).filter(Boolean)
+          );
+          const latestVideoExists =
+            existingKeys.has(latestVideo.id) || existingKeys.has(normalizeExternalUrl(latestVideo.url));
+
+          if (latestVideoExists) {
+            const normalizedLatestUrl = normalizeExternalUrl(latestVideo.url);
+            const normalizedUpdates = creator.updates.map((update) => {
+              const isLatestUpdate = update.id === latestVideo.id || normalizeExternalUrl(update.url) === normalizedLatestUrl;
+              return update.read || isLatestUpdate ? update : { ...update, read: true };
+            });
+
+            return { ...creator, ...baseFields, updates: normalizedUpdates };
+          }
+
+          updatedCreatorCount += 1;
+          const latestUpdate = createUpdate(
+            latestVideo.id,
+            formatVideoTime(latestVideo.publishedAt),
+            latestVideo.title,
+            latestVideo.url,
+            false,
+            {
+              source: "bilibili-feed",
+              publishedAt: latestVideo.publishedAt || "",
+              author: latestVideo.author || "",
+              createdAt: new Date().toISOString()
+            }
+          );
+          const readExistingUpdates = creator.updates.map((update) => (update.read ? update : { ...update, read: true }));
+
+          return { ...creator, ...baseFields, updates: [latestUpdate, ...readExistingUpdates] };
+        })
+      };
+    });
+
+    updatePlatforms(nextPlatforms);
+
+    const firstDebugInfo = failedResults[0]?.debugInfo || null;
+    if (failedCount === syncItems.length && updatedCreatorCount === 0) {
+      setBilibiliSyncState({ status: "error", message: "同步失败，B站投稿源暂时无法读取", debugInfo: firstDebugInfo });
+    } else if (failedCount > 0) {
+      setBilibiliSyncState({
+        status: "success",
+        message: `同步完成，发现 ${updatedCreatorCount} 位 UP 主的新投稿，${failedCount} 个 UP 主暂时无法同步`,
+        debugInfo: firstDebugInfo
+      });
+    } else {
+      setBilibiliSyncState({
+        status: "success",
+        message: updatedCreatorCount > 0 ? `同步完成，发现 ${updatedCreatorCount} 位 UP 主的新投稿` : "同步完成，暂无新投稿",
+        debugInfo: null
+      });
+    }
+
+    return { addedCount: updatedCreatorCount, failedCount };
+  }
+
   function addManualCreator(formData) {
     updatePlatforms(
       platforms.map((platform) => {
         if (platform.id !== formData.platformId) return platform;
 
         const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(formData.homepageUrl) : null;
+        const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(formData.homepageUrl) : "";
         const creatorName =
           formData.creator.trim() ||
-          (platform.id === "youtube" ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道" : "");
+          (platform.id === "youtube"
+            ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道"
+            : platform.id === "bilibili" && bilibiliUid
+              ? `B站用户 ${bilibiliUid}`
+              : "");
         const channelId = youtubeInfo?.sourceId || "";
         const homepageUrl =
           platform.id === "youtube"
@@ -1317,8 +1527,8 @@ export default function App() {
             : platform.id === "bilibili"
               ? normalizeBilibiliHomepage(formData.homepageUrl)
             : normalizeExternalUrl(formData.homepageUrl);
-        const sourceId = platform.id === "youtube" ? channelId : `manual-${Date.now()}`;
-        const creatorRecordId = channelId || `manual-${Date.now()}`;
+        const sourceId = platform.id === "youtube" ? channelId : platform.id === "bilibili" ? bilibiliUid : `manual-${Date.now()}`;
+        const creatorRecordId = channelId || bilibiliUid || `manual-${Date.now()}`;
         const feedUrl = youtubeInfo?.feedUrl || "";
         const updateTitle = formData.title.trim();
         const updateUrl = formData.updateUrl.trim();
@@ -1336,6 +1546,7 @@ export default function App() {
         const existingCreator = platform.creators.find(
           (creator) =>
             (channelId && creator.sourceId === channelId) ||
+            (bilibiliUid && (creator.uid === bilibiliUid || creator.sourceId === bilibiliUid)) ||
             (homepageUrl && creator.homepageUrl === homepageUrl) ||
             creator.name === creatorName
         );
@@ -1350,9 +1561,14 @@ export default function App() {
                     ...creator,
                     selected: true,
                     homepageUrl,
-                    sourceId: platform.id === "youtube" ? channelId : creator.sourceId,
+                    sourceId: platform.id === "youtube" ? channelId : platform.id === "bilibili" ? bilibiliUid : creator.sourceId,
                     feedUrl: platform.id === "youtube" ? feedUrl : creator.feedUrl,
                     handle: platform.id === "youtube" ? youtubeInfo.handle : creator.handle,
+                    uid: platform.id === "bilibili" ? bilibiliUid : creator.uid,
+                    syncFailCount: usesCreatorSyncState(platform.id) ? 0 : creator.syncFailCount,
+                    syncStatus: usesCreatorSyncState(platform.id) ? "active" : creator.syncStatus,
+                    lastSyncError: usesCreatorSyncState(platform.id) ? null : creator.lastSyncError,
+                    lastSyncErrorAt: usesCreatorSyncState(platform.id) ? "" : creator.lastSyncErrorAt,
                     updates: [...updates, ...creator.updates]
                   }
                 : creator
@@ -1367,6 +1583,8 @@ export default function App() {
             createCreator(formData.platformId, creatorName, homepageUrl, sourceId, updates, {
               ...(feedUrl ? { feedUrl } : {}),
               ...(platform.id === "youtube" && youtubeInfo?.handle ? { handle: youtubeInfo.handle } : {}),
+              ...(platform.id === "bilibili" && bilibiliUid ? { uid: bilibiliUid } : {}),
+              ...(usesCreatorSyncState(platform.id) ? { syncFailCount: 0, syncStatus: "active", lastSyncError: null, lastSyncErrorAt: "" } : {}),
               ...(platform.id === "youtube" && !channelId ? { id: `${formData.platformId}-${creatorRecordId}` } : {})
             }),
             ...platform.creators
@@ -1526,9 +1744,12 @@ export default function App() {
         {activeTab === "sync" && (
           <SyncPage
             youtubePlatform={youtubePlatform}
+            bilibiliPlatform={bilibiliPlatform}
             syncState={youtubeSyncState}
+            bilibiliSyncState={bilibiliSyncState}
             lastAutoYouTubeSyncAt={lastAutoYouTubeSyncAt}
             onSync={() => syncYouTubeFeeds()}
+            onBilibiliSync={syncBilibiliFeeds}
           />
         )}
         {activeTab === "settings" && (
@@ -1728,7 +1949,7 @@ function PlatformDetail({
               <article className="detail-card" key={`${creator.id}-${update.id}`}>
                 <CreatorRow creator={creator} update={update} />
                 <button className="open-content" type="button" onClick={() => onOpenUpdate({ platform, creator, update })}>
-                  {platform.id === "youtube" ? "打开内容 →" : "进入主页 →"}
+                  {platform.id === "youtube" || platform.id === "bilibili" ? "打开内容 →" : "进入主页 →"}
                 </button>
               </article>
             ))
@@ -1782,13 +2003,17 @@ function FollowedCreatorsSection({ platformId, creators, onOpenCreator, onEditCr
           <div className="followed-item" key={creator.id}>
             <div>
               <strong>{creator.name}</strong>
-              {platformId === "youtube" && (
+              {(platformId === "youtube" || platformId === "bilibili") && (
                 <>
-                  <p className="creator-debug">
-                    {creator.sourceId ? `sourceId: ${creator.sourceId}` : "等待同步识别 channelId"}
-                  </p>
+                  {platformId === "youtube" && (
+                    <p className="creator-debug">
+                      {creator.sourceId ? `sourceId: ${creator.sourceId}` : "等待同步识别 channelId"}
+                    </p>
+                  )}
                   {creator.syncStatus === "unstable" && (
-                    <p className="creator-debug">同步偶发失败，已保留上次成功结果</p>
+                    <p className="creator-debug">
+                      {platformId === "bilibili" ? "同步偶发失败，已保留为主页入口" : "同步偶发失败，已保留上次成功结果"}
+                    </p>
                   )}
                   {creator.syncStatus === "needs_attention" && (
                     <p className="creator-debug">暂不可同步，可作为主页入口使用</p>
@@ -1890,7 +2115,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if ((!isYouTube && !form.creator.trim()) || !form.homepageUrl.trim()) {
+    if ((!isYouTube && !isBilibili && !form.creator.trim()) || !form.homepageUrl.trim()) {
       alert(isYouTube ? "请填写 YouTube 频道链接" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
@@ -1939,7 +2164,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
           {isYouTube && nameStatus && <span className="field-note">{nameStatus}</span>}
           {isBilibili && (
             <span className="field-note">
-              先手动添加 B站 UP 主主页，后续再尝试自动同步最新投稿。
+              先手动添加 B站 UP 主主页，实验同步会尝试读取最新投稿。
             </span>
           )}
         </label>
@@ -1983,7 +2208,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if ((!isYouTube && !form.creator.trim()) || !form.homepageUrl.trim()) {
+    if ((!isYouTube && !isBilibili && !form.creator.trim()) || !form.homepageUrl.trim()) {
       alert(isYouTube ? "请填写频道名和 YouTube 频道链接" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
@@ -2015,7 +2240,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
           {isYouTube && nameStatus && <span className="field-note">{nameStatus}</span>}
           {isBilibili && (
             <span className="field-note">
-              先手动添加 B站 UP 主主页，后续再尝试自动同步最新投稿。
+              先手动添加 B站 UP 主主页，实验同步会尝试读取最新投稿。
             </span>
           )}
         </label>
@@ -2103,10 +2328,13 @@ function SettingsPage({
   );
 }
 
-function SyncPage({ youtubePlatform, syncState, lastAutoYouTubeSyncAt, onSync }) {
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
+function SyncPage({ youtubePlatform, bilibiliPlatform, syncState, bilibiliSyncState, lastAutoYouTubeSyncAt, onSync, onBilibiliSync }) {
+  const [showYouTubeDiagnostics, setShowYouTubeDiagnostics] = useState(false);
+  const [showBilibiliDiagnostics, setShowBilibiliDiagnostics] = useState(false);
   const channelCount = youtubePlatform?.creators.filter((creator) => creator.selected !== false).length || 0;
+  const bilibiliCreatorCount = bilibiliPlatform?.creators.filter((creator) => creator.selected !== false).length || 0;
   const isSyncing = syncState.status === "syncing";
+  const isBilibiliSyncing = bilibiliSyncState.status === "syncing";
   const autoSyncText = getAutoYouTubeSyncText(lastAutoYouTubeSyncAt);
   const debugInfo = syncState.debugInfo;
   const debugItems = debugInfo
@@ -2130,6 +2358,18 @@ function SyncPage({ youtubePlatform, syncState, lastAutoYouTubeSyncAt, onSync })
         ["responsePreview", debugInfo.responsePreview?.slice(0, 200)]
       ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
     : [];
+  const bilibiliDebugInfo = bilibiliSyncState.debugInfo;
+  const bilibiliDebugItems = bilibiliDebugInfo
+    ? [
+        ["失败 UP 主名", bilibiliDebugInfo.creatorName],
+        ["uid", bilibiliDebugInfo.uid],
+        ["feedUrl", bilibiliDebugInfo.feedUrl],
+        ["错误类型", bilibiliDebugInfo.error],
+        ["HTTP 状态码", bilibiliDebugInfo.status],
+        ["状态文字", bilibiliDebugInfo.statusText],
+        ["responsePreview", bilibiliDebugInfo.responsePreview?.slice(0, 200)]
+      ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
+    : [];
 
   return (
     <section className="simple-page">
@@ -2146,10 +2386,10 @@ function SyncPage({ youtubePlatform, syncState, lastAutoYouTubeSyncAt, onSync })
         {syncState.message && <p className="sync-message">{syncState.message}</p>}
         {debugInfo && (
           <div className="sync-debug">
-            <button className="diagnostics-toggle" type="button" onClick={() => setShowDiagnostics((current) => !current)}>
-              {showDiagnostics ? "收起诊断信息" : "查看诊断信息"}
+            <button className="diagnostics-toggle" type="button" onClick={() => setShowYouTubeDiagnostics((current) => !current)}>
+              {showYouTubeDiagnostics ? "收起诊断信息" : "查看诊断信息"}
             </button>
-            {showDiagnostics && (
+            {showYouTubeDiagnostics && (
               <>
                 {debugItems.map(([label, value]) => (
                   <span key={label}>{label}：{value}</span>
@@ -2165,6 +2405,29 @@ function SyncPage({ youtubePlatform, syncState, lastAutoYouTubeSyncAt, onSync })
                     打开 feed 测试 →
                   </button>
                 )}
+              </>
+            )}
+          </div>
+        )}
+      </section>
+      <section className="sync-card">
+        <h3>B站</h3>
+        <p>已添加 {bilibiliCreatorCount} 位 UP 主</p>
+        <p>上次同步：{formatSyncTime(bilibiliPlatform?.lastSyncedAt)}</p>
+        <button className="submit-button" type="button" onClick={onBilibiliSync} disabled={isBilibiliSyncing}>
+          {isBilibiliSyncing ? "同步中..." : "立即同步 B站"}
+        </button>
+        {bilibiliSyncState.message && <p className="sync-message">{bilibiliSyncState.message}</p>}
+        {bilibiliDebugInfo && (
+          <div className="sync-debug">
+            <button className="diagnostics-toggle" type="button" onClick={() => setShowBilibiliDiagnostics((current) => !current)}>
+              {showBilibiliDiagnostics ? "收起诊断信息" : "查看诊断信息"}
+            </button>
+            {showBilibiliDiagnostics && (
+              <>
+                {bilibiliDebugItems.map(([label, value]) => (
+                  <span key={label}>{label}：{value}</span>
+                ))}
               </>
             )}
           </div>
