@@ -948,10 +948,8 @@ select:focus {
   border-top: 1px solid var(--line);
 }
 
-.sync-card h3 {
-  margin: 0 0 10px;
-  font-size: 18px;
-  font-weight: 950;
+.sync-card p:first-child {
+  margin-top: 0;
 }
 
 .sync-message {

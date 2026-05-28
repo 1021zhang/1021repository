@@ -2359,7 +2359,6 @@ function SyncPage({
       <h2>同步中心</h2>
       <p>统一检查可同步平台的新更新</p>
       <section className="sync-card">
-        <h3>同步全部</h3>
         <p>上次同步：{formatSyncTime(lastGlobalSyncAt || youtubePlatform?.lastSyncedAt)}</p>
         <p>{autoSyncText}</p>
         <button className="submit-button" type="button" onClick={onSyncAll} disabled={isSyncingAll || isYouTubeSyncing}>
