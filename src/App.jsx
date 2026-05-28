@@ -4,6 +4,8 @@ const STORAGE_KEY = "follow_blue_oval_app_v1";
 const AUTO_YOUTUBE_SYNC_STORAGE_KEY = "follow_last_auto_youtube_sync_at";
 const PLATFORM_ORDER_STORAGE_KEY = "follow_platform_order";
 const PLATFORM_VISIBILITY_STORAGE_KEY = "follow_platform_visibility";
+const RSSHUB_BASE_URL_STORAGE_KEY = "follow_rsshub_base_url";
+const DEFAULT_RSSHUB_BASE_URL = "https://rsshub.app";
 const DEFAULT_PLATFORM_ORDER = ["youtube", "instagram", "bilibili", "xiaohongshu", "weibo", "rss"];
 const LEGACY_DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
 const DEFAULT_PLATFORM_VISIBILITY = {
@@ -248,6 +250,37 @@ function savePlatformVisibility(visibility, platforms = initialPlatforms) {
   } catch {
     // Ignore storage failures; visibility can fall back to defaults.
   }
+}
+
+function normalizeRsshubBaseUrl(value) {
+  const trimmedValue = String(value || "").trim();
+  if (!trimmedValue) return DEFAULT_RSSHUB_BASE_URL;
+
+  try {
+    const parsedUrl = new URL(trimmedValue);
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") return DEFAULT_RSSHUB_BASE_URL;
+    return parsedUrl.toString().replace(/\/$/, "");
+  } catch {
+    return DEFAULT_RSSHUB_BASE_URL;
+  }
+}
+
+function readRsshubBaseUrl() {
+  try {
+    return normalizeRsshubBaseUrl(localStorage.getItem(RSSHUB_BASE_URL_STORAGE_KEY));
+  } catch {
+    return DEFAULT_RSSHUB_BASE_URL;
+  }
+}
+
+function saveRsshubBaseUrl(value) {
+  const normalizedUrl = normalizeRsshubBaseUrl(value);
+  try {
+    localStorage.setItem(RSSHUB_BASE_URL_STORAGE_KEY, normalizedUrl);
+  } catch {
+    // Ignore storage failures; B站 sync can still use the default.
+  }
+  return normalizedUrl;
 }
 
 function normalizeExternalUrl(url) {
@@ -752,6 +785,8 @@ export default function App() {
   const [lastAutoYouTubeSyncAt, setLastAutoYouTubeSyncAt] = useState(readLastAutoYouTubeSyncAt);
   const [platformOrder, setPlatformOrder] = useState(() => normalizePlatformOrder(readPlatformOrder(), platforms));
   const [platformVisibility, setPlatformVisibility] = useState(() => normalizePlatformVisibility(readPlatformVisibility(), platforms));
+  const [rsshubBaseUrl, setRsshubBaseUrl] = useState(readRsshubBaseUrl);
+  const [rsshubSaveMessage, setRsshubSaveMessage] = useState("");
   const autoSyncStartedRef = useRef(false);
   const swipeBackRef = useRef({ tracking: false, startX: 0, startY: 0, lastX: 0, lastY: 0 });
 
@@ -797,6 +832,17 @@ export default function App() {
       savePlatformVisibility(nextVisibility, platforms);
       return nextVisibility;
     });
+  }
+
+  function updateRsshubBaseUrl(value) {
+    setRsshubBaseUrl(value);
+    setRsshubSaveMessage("");
+  }
+
+  function saveRsshubSettings() {
+    const normalizedUrl = saveRsshubBaseUrl(rsshubBaseUrl);
+    setRsshubBaseUrl(normalizedUrl);
+    setRsshubSaveMessage("RSSHub 地址已保存");
   }
 
   function recordYouTubeSyncAttempt() {
@@ -1349,10 +1395,11 @@ export default function App() {
 
     const results = await Promise.all(
       syncItems.map(async ({ creator, uid }) => {
-        const feedUrl = `https://rsshub.app/bilibili/user/video/${encodeURIComponent(uid)}`;
+        const baseUrl = normalizeRsshubBaseUrl(rsshubBaseUrl);
+        const feedUrl = `${baseUrl}/bilibili/user/video/${encodeURIComponent(uid)}`;
 
         try {
-          const response = await fetch(`/api/bilibili-feed?uid=${encodeURIComponent(uid)}`);
+          const response = await fetch(`/api/bilibili-feed?uid=${encodeURIComponent(uid)}&baseUrl=${encodeURIComponent(baseUrl)}`);
           const data = await response.json().catch(() => ({}));
 
           if (!response.ok || !Array.isArray(data.videos) || data.videos.length === 0) {
@@ -1488,7 +1535,7 @@ export default function App() {
 
     const firstDebugInfo = failedResults[0]?.debugInfo || null;
     if (failedCount === syncItems.length && updatedCreatorCount === 0) {
-      setBilibiliSyncState({ status: "error", message: "同步失败，B站投稿源暂时无法读取", debugInfo: firstDebugInfo });
+      setBilibiliSyncState({ status: "error", message: "B站投稿源暂时无法读取，可继续作为主页入口使用", debugInfo: firstDebugInfo });
     } else if (failedCount > 0) {
       setBilibiliSyncState({
         status: "success",
@@ -1747,6 +1794,7 @@ export default function App() {
             bilibiliPlatform={bilibiliPlatform}
             syncState={youtubeSyncState}
             bilibiliSyncState={bilibiliSyncState}
+            rsshubBaseUrl={rsshubBaseUrl}
             lastAutoYouTubeSyncAt={lastAutoYouTubeSyncAt}
             onSync={() => syncYouTubeFeeds()}
             onBilibiliSync={syncBilibiliFeeds}
@@ -1757,8 +1805,12 @@ export default function App() {
             platforms={platforms}
             platformOrder={platformOrder}
             platformVisibility={platformVisibility}
+            rsshubBaseUrl={rsshubBaseUrl}
+            rsshubSaveMessage={rsshubSaveMessage}
             onMovePlatform={movePlatformOrder}
             onTogglePlatformVisibility={updatePlatformVisibility}
+            onChangeRsshubBaseUrl={updateRsshubBaseUrl}
+            onSaveRsshubBaseUrl={saveRsshubSettings}
             onExport={exportData}
             onImport={importData}
             onClear={clearData}
@@ -2012,7 +2064,7 @@ function FollowedCreatorsSection({ platformId, creators, onOpenCreator, onEditCr
                   )}
                   {creator.syncStatus === "unstable" && (
                     <p className="creator-debug">
-                      {platformId === "bilibili" ? "同步偶发失败，已保留为主页入口" : "同步偶发失败，已保留上次成功结果"}
+                      {platformId === "bilibili" ? "同步源暂时不稳定，可作为主页入口使用" : "同步偶发失败，已保留上次成功结果"}
                     </p>
                   )}
                   {creator.syncStatus === "needs_attention" && (
@@ -2255,8 +2307,12 @@ function SettingsPage({
   platforms,
   platformOrder,
   platformVisibility,
+  rsshubBaseUrl,
+  rsshubSaveMessage,
   onMovePlatform,
   onTogglePlatformVisibility,
+  onChangeRsshubBaseUrl,
+  onSaveRsshubBaseUrl,
   onExport,
   onImport,
   onClear
@@ -2311,6 +2367,22 @@ function SettingsPage({
         </div>
       </section>
       <section className="settings-card">
+        <h2>RSSHub 设置</h2>
+        <p>B站同步依赖 RSSHub。公共服务可能不稳定，可填写自己的 RSSHub 地址。</p>
+        <label className="settings-field">
+          RSSHub 地址
+          <input
+            value={rsshubBaseUrl}
+            onChange={(event) => onChangeRsshubBaseUrl(event.target.value)}
+            placeholder={DEFAULT_RSSHUB_BASE_URL}
+          />
+        </label>
+        <button className="submit-button" type="button" onClick={onSaveRsshubBaseUrl}>
+          保存 RSSHub 地址
+        </button>
+        {rsshubSaveMessage && <p className="settings-save-message">{rsshubSaveMessage}</p>}
+      </section>
+      <section className="settings-card">
         <h2>数据管理</h2>
         <div className="settings-actions">
           <button type="button" onClick={onExport}>导出数据</button>
@@ -2328,7 +2400,16 @@ function SettingsPage({
   );
 }
 
-function SyncPage({ youtubePlatform, bilibiliPlatform, syncState, bilibiliSyncState, lastAutoYouTubeSyncAt, onSync, onBilibiliSync }) {
+function SyncPage({
+  youtubePlatform,
+  bilibiliPlatform,
+  syncState,
+  bilibiliSyncState,
+  rsshubBaseUrl,
+  lastAutoYouTubeSyncAt,
+  onSync,
+  onBilibiliSync
+}) {
   const [showYouTubeDiagnostics, setShowYouTubeDiagnostics] = useState(false);
   const [showBilibiliDiagnostics, setShowBilibiliDiagnostics] = useState(false);
   const channelCount = youtubePlatform?.creators.filter((creator) => creator.selected !== false).length || 0;
@@ -2414,6 +2495,7 @@ function SyncPage({ youtubePlatform, bilibiliPlatform, syncState, bilibiliSyncSt
         <h3>B站</h3>
         <p>已添加 {bilibiliCreatorCount} 位 UP 主</p>
         <p>上次同步：{formatSyncTime(bilibiliPlatform?.lastSyncedAt)}</p>
+        <p>当前 RSSHub：{normalizeRsshubBaseUrl(rsshubBaseUrl)}</p>
         <button className="submit-button" type="button" onClick={onBilibiliSync} disabled={isBilibiliSyncing}>
           {isBilibiliSyncing ? "同步中..." : "立即同步 B站"}
         </button>

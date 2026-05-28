@@ -30,6 +30,17 @@ function normalizeUid(input = "") {
   return uid || "";
 }
 
+function normalizeRsshubBaseUrl(input = "") {
+  const trimmedInput = String(input || "https://rsshub.app").trim() || "https://rsshub.app";
+  try {
+    const parsedUrl = new URL(trimmedInput);
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") return "";
+    return parsedUrl.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
 function parseVideos(xml) {
   const items = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
 
@@ -61,13 +72,25 @@ function parseVideos(xml) {
 
 export default async function handler(request, response) {
   const uid = normalizeUid(firstQueryValue(request.query.uid));
-  const feedUrl = uid ? `https://rsshub.app/bilibili/user/video/${encodeURIComponent(uid)}` : "";
+  const baseUrl = normalizeRsshubBaseUrl(firstQueryValue(request.query.baseUrl));
+  const feedUrl = uid && baseUrl ? `${baseUrl}/bilibili/user/video/${encodeURIComponent(uid)}` : "";
 
   if (!uid) {
     response.status(400).json({
       error: "missing_uid",
       message: "缺少 B站 UID",
       uid: "",
+      feedUrl: "",
+      videos: []
+    });
+    return;
+  }
+
+  if (!baseUrl) {
+    response.status(400).json({
+      error: "invalid_rsshub_base_url",
+      message: "RSSHub 地址不合法",
+      uid,
       feedUrl: "",
       videos: []
     });

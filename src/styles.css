@@ -661,6 +661,17 @@ select:focus {
   color: #c53a3a;
 }
 
+.settings-field {
+  margin-top: 14px;
+}
+
+.settings-save-message {
+  margin: 10px 0 0;
+  color: var(--blue-dark);
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .platform-order-list {
   margin-top: 14px;
 }
