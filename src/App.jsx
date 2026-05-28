@@ -729,7 +729,11 @@ function getConnectedNote(platform) {
 }
 
 function getPlatformSupplementText(platform, creatorCount) {
-  if (platform.id === "bilibili") return creatorCount > 0 ? "手动添加链接，作为主页入口使用" : "手动添加 B站主页链接";
+  if (platform.id === "rss") return creatorCount > 0 ? "高级订阅源入口" : "添加高级订阅源";
+  if (platform.id === "bilibili") return creatorCount > 0 ? "展开查看常用主页" : "手动添加 B站主页链接";
+  if (platform.id === "instagram" || platform.id === "xiaohongshu" || platform.id === "weibo") {
+    return creatorCount > 0 ? "展开查看常用主页" : "手动添加主页链接";
+  }
   if (creatorCount > 0) return getConnectedNote(platform);
   if (platform.id === "youtube") return "先添加频道，有更新会显示在这里";
   return "先添加博主，有更新会显示在这里";
@@ -1806,9 +1810,11 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
               }}
             />
           ))}
-          <button className="more-line" type="button" onClick={onViewAll}>
-            {restCount > 0 ? `还有 ${restCount} 位更新，查看全部 →` : "查看全部 →"}
-          </button>
+          {restCount > 0 && (
+            <button className="more-line" type="button" onClick={onViewAll}>
+              还有 {restCount} 位更新，查看全部 →
+            </button>
+          )}
         </div>
       )}
 
@@ -1834,7 +1840,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
           })}
           {hiddenCreatorCount > 0 && (
             <button className="more-line quick-more-line" type="button" onClick={onViewAll}>
-              查看全部 →
+              还有 {hiddenCreatorCount} 位，查看全部 →
             </button>
           )}
         </div>

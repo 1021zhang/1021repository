@@ -19,6 +19,7 @@ body,
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -44,6 +45,20 @@ select {
 
 button {
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus {
+  outline: none;
+}
+
+button:focus-visible {
+  outline: 2px solid rgba(47, 150, 239, 0.35);
+  outline-offset: 3px;
 }
 
 .page {
@@ -168,6 +183,7 @@ button {
 .platform-card-head {
   align-items: center;
   margin-bottom: 12px;
+  background: #ffffff;
 }
 
 .platform-title {
@@ -180,24 +196,33 @@ button {
 
 .expand-trigger {
   max-width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
   border: 0;
   padding: 0;
   background: transparent;
   color: inherit;
   text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.expand-trigger:active {
+  background: transparent;
+  opacity: 0.72;
 }
 
 .expand-arrow {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1.5px solid #d8e9fb;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(47, 150, 239, 0.38);
   border-radius: 50%;
   color: var(--blue-dark);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 950;
   line-height: 1;
+  background: #ffffff;
 }
 
 .blue-oval {
@@ -276,7 +301,8 @@ button {
 }
 
 .creator-row.clickable:active {
-  opacity: 0.78;
+  background: transparent;
+  opacity: 0.72;
 }
 
 .avatar {
@@ -344,10 +370,10 @@ button {
   display: grid;
   gap: 0;
   margin-top: 14px;
-  padding: 8px 12px;
-  border: 1px solid #edf4fb;
+  padding: 6px 12px;
+  border: 1px solid #eef6fc;
   border-radius: 18px;
-  background: #f8fbff;
+  background: #fbfdff;
 }
 
 .quick-creator-row {
@@ -356,12 +382,18 @@ button {
   gap: 12px;
   align-items: center;
   width: 100%;
-  min-height: 42px;
+  min-height: 54px;
   border: 0;
   border-bottom: 1px solid #e7f0f8;
   background: transparent;
   color: inherit;
   text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.quick-creator-row:active {
+  background: transparent;
+  opacity: 0.72;
 }
 
 .quick-creator-row:last-of-type {
@@ -381,7 +413,7 @@ button {
 .quick-creator-row strong,
 .quick-creator-row em {
   color: var(--blue-dark);
-  font-size: 13px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 900;
   white-space: nowrap;
