@@ -320,6 +320,18 @@ function extractBilibiliUid(input) {
   return spaceMatch ? spaceMatch[1] : "";
 }
 
+function extractXiaohongshuUserId(url) {
+  if (!url) return "";
+  const match = String(url).trim().match(/\/user\/profile\/([^?&#/]+)/i);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function isXiaohongshuPlatform(platform) {
+  const platformId = String(platform?.id || "").toLowerCase();
+  const platformName = String(platform?.name || "").toLowerCase();
+  return ["xiaohongshu", "redbook", "xhs"].includes(platformId) || platformId === "小红书" || platformName.includes("小红书");
+}
+
 function isMockOrEmptyUrl(url) {
   return normalizeExternalUrl(url) === "";
 }
@@ -336,6 +348,31 @@ function navigateExternal(finalUrl) {
     link.click();
     link.remove();
   }
+}
+
+function openXiaohongshuProfile(homepageUrl) {
+  const finalUrl = normalizeExternalUrl(homepageUrl);
+  const userId = extractXiaohongshuUserId(finalUrl);
+
+  if (!finalUrl) return;
+  if (!userId) {
+    navigateExternal(finalUrl);
+    return;
+  }
+
+  const appScheme = `xhsdiscover://user/${encodeURIComponent(userId)}`;
+  let didHide = false;
+  const handleVisibilityChange = () => {
+    if (document.hidden) didHide = true;
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange, { once: true });
+  window.location.href = appScheme;
+
+  window.setTimeout(() => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    if (!didHide) navigateExternal(finalUrl);
+  }, 800);
 }
 
 function getCurrentTime() {
@@ -1033,6 +1070,11 @@ export default function App() {
       return;
     }
 
+    if (isXiaohongshuPlatform(platform)) {
+      openXiaohongshuProfile(finalUrl);
+      return;
+    }
+
     navigateExternal(finalUrl);
   }
 
@@ -1050,6 +1092,11 @@ export default function App() {
 
     if (!finalUrl) {
       alert("当前没有可打开的主页链接");
+      return;
+    }
+
+    if (isXiaohongshuPlatform(platform)) {
+      openXiaohongshuProfile(finalUrl);
       return;
     }
 
