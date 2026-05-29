@@ -1866,7 +1866,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
         </button>
 
         {creatorCount === 0 ? (
-          <button className="card-add-button" type="button" onClick={onConnect}>{getActionText(platform)}</button>
+          <button className="card-add-button" type="button" onClick={onConnect} aria-label={getActionText(platform)}>添加</button>
         ) : (
           <button className="view-all" type="button" onClick={onViewAll}>查看全部 →</button>
         )}

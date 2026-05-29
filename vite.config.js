@@ -12,7 +12,7 @@ export default defineConfig({
         name: "follow",
         short_name: "follow",
         description: "关注的人，有更新了",
-        theme_color: "#2f96ef",
+        theme_color: "#ffffff",
         background_color: "#ffffff",
         display: "standalone",
         start_url: "/",
