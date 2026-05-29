@@ -349,34 +349,56 @@ function isMockOrEmptyUrl(url) {
   return normalizeExternalUrl(url) === "";
 }
 
-function navigateExternal(finalUrl) {
+function openExternalSafely(url, options = {}) {
+  const finalUrl = options.skipNormalize ? String(url || "").trim() : normalizeExternalUrl(url);
+  if (!finalUrl) return false;
+
   try {
-    window.location.assign(finalUrl);
+    const externalWindow = window.open(finalUrl, "_blank", "noopener,noreferrer");
+    if (externalWindow) {
+      try {
+        externalWindow.opener = null;
+      } catch {
+        // Some browsers prevent touching the opened window; noopener still applies.
+      }
+      return true;
+    }
   } catch {
-    const link = document.createElement("a");
-    link.href = finalUrl;
-    link.rel = "noreferrer";
-    link.target = "_self";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    // Fall through to same-tab navigation when popups are blocked.
+  }
+
+  try {
+    window.location.href = finalUrl;
+    return true;
+  } catch {
+    return false;
   }
 }
 
 function tryOpenXiaohongshuApp(userId, fallbackUrl) {
   const appScheme = `xhsdiscover://user/${encodeURIComponent(userId)}`;
-  let didHide = false;
-  const handleVisibilityChange = () => {
+  const openedAt = Date.now();
+  let didHide = document.hidden;
+  const markPageHidden = () => {
     if (document.hidden) didHide = true;
   };
+  const markPageLeft = () => {
+    didHide = true;
+  };
 
-  document.addEventListener("visibilitychange", handleVisibilityChange, { once: true });
+  document.addEventListener("visibilitychange", markPageHidden);
+  window.addEventListener("pagehide", markPageLeft, { once: true });
+  window.addEventListener("blur", markPageLeft, { once: true });
   window.location.href = appScheme;
 
   window.setTimeout(() => {
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
-    if (!didHide) navigateExternal(fallbackUrl);
-  }, 800);
+    document.removeEventListener("visibilitychange", markPageHidden);
+    window.removeEventListener("pagehide", markPageLeft);
+    window.removeEventListener("blur", markPageLeft);
+    if (didHide || document.hidden) return;
+    if (Date.now() - openedAt < 1000) return;
+    openExternalSafely(fallbackUrl);
+  }, 1200);
 }
 
 async function openXiaohongshuProfile(homepageUrl) {
@@ -404,14 +426,14 @@ async function openXiaohongshuProfile(homepageUrl) {
         return;
       }
 
-      navigateExternal(fallbackUrl);
+      openExternalSafely(fallbackUrl);
       return;
     }
   } catch {
     // Fall back to the original link below.
   }
 
-  navigateExternal(finalUrl);
+  openExternalSafely(finalUrl);
 }
 
 function getCurrentTime() {
@@ -1123,7 +1145,7 @@ export default function App() {
       markUpdateAsRead(platform.id, creator.id, update.id);
     }
 
-    navigateExternal(finalUrl);
+    openExternalSafely(finalUrl);
   }
 
   function openCreatorHomepage(platform, update) {
@@ -1140,7 +1162,7 @@ export default function App() {
       return;
     }
 
-    navigateExternal(finalUrl);
+    openExternalSafely(finalUrl);
   }
 
   function openFollowedCreatorHomepage(platform, creator) {
@@ -1165,7 +1187,7 @@ export default function App() {
       return;
     }
 
-    navigateExternal(finalUrl);
+    openExternalSafely(finalUrl);
   }
 
   function removeCreator(platformId, creator) {
@@ -2664,7 +2686,7 @@ function SyncPage({
                     className="feed-test-button"
                     type="button"
                     onClick={() => {
-                      window.location.href = debugInfo.feedUrl;
+                      openExternalSafely(debugInfo.feedUrl);
                     }}
                   >
                     打开 feed 测试 →
