@@ -866,6 +866,21 @@ select:focus {
   padding: 0 18px 18px;
 }
 
+.add-platform-button {
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 18px;
+  border: 1.5px solid var(--blue-line);
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue-dark);
+  font-weight: 900;
+}
+
+.add-platform-button:active {
+  opacity: 0.72;
+}
+
 .settings-subsection + .settings-subsection {
   margin-top: 18px;
   padding-top: 16px;
