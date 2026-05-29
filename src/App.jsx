@@ -326,6 +326,19 @@ function extractXiaohongshuUserId(url) {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
+function parseXiaohongshuShareText(input) {
+  const text = String(input || "").trim();
+  if (!text) return { name: "", url: "" };
+
+  const urlMatch = text.match(/https?:\/\/(?:www\.)?(?:xhslink\.com|xiaohongshu\.com)\/[^\s，。！？、；；)）\]】>》"'“”]+/i);
+  const nameMatch = text.match(/^@(.+?)\s*在小红书/);
+
+  return {
+    name: nameMatch ? nameMatch[1].trim() : "",
+    url: urlMatch ? urlMatch[0].replace(/[，。！？、；；)）\]】>》"'“”]+$/g, "") : ""
+  };
+}
+
 function isXiaohongshuPlatform(platform) {
   const platformId = String(platform?.id || "").toLowerCase();
   const platformName = String(platform?.name || "").toLowerCase();
@@ -350,16 +363,7 @@ function navigateExternal(finalUrl) {
   }
 }
 
-function openXiaohongshuProfile(homepageUrl) {
-  const finalUrl = normalizeExternalUrl(homepageUrl);
-  const userId = extractXiaohongshuUserId(finalUrl);
-
-  if (!finalUrl) return;
-  if (!userId) {
-    navigateExternal(finalUrl);
-    return;
-  }
-
+function tryOpenXiaohongshuApp(userId, fallbackUrl) {
   const appScheme = `xhsdiscover://user/${encodeURIComponent(userId)}`;
   let didHide = false;
   const handleVisibilityChange = () => {
@@ -371,8 +375,43 @@ function openXiaohongshuProfile(homepageUrl) {
 
   window.setTimeout(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
-    if (!didHide) navigateExternal(finalUrl);
+    if (!didHide) navigateExternal(fallbackUrl);
   }, 800);
+}
+
+async function openXiaohongshuProfile(homepageUrl) {
+  const parsedShare = parseXiaohongshuShareText(homepageUrl);
+  const finalUrl = normalizeExternalUrl(parsedShare.url || homepageUrl);
+  const userId = extractXiaohongshuUserId(finalUrl);
+
+  if (!finalUrl) return;
+  if (userId) {
+    tryOpenXiaohongshuApp(userId, finalUrl);
+    return;
+  }
+
+  try {
+    const parsedUrl = new URL(finalUrl);
+    const hostname = parsedUrl.hostname.replace(/^www\./, "");
+
+    if (hostname === "xhslink.com") {
+      const response = await fetch(`/api/resolve-xhs-link?url=${encodeURIComponent(finalUrl)}`);
+      const data = await response.json().catch(() => ({}));
+      const fallbackUrl = normalizeExternalUrl(data.finalUrl || data.originalUrl || finalUrl) || finalUrl;
+
+      if (data.userId) {
+        tryOpenXiaohongshuApp(data.userId, fallbackUrl);
+        return;
+      }
+
+      navigateExternal(fallbackUrl);
+      return;
+    }
+  } catch {
+    // Fall back to the original link below.
+  }
+
+  navigateExternal(finalUrl);
 }
 
 function getCurrentTime() {
@@ -592,6 +631,11 @@ function inferLocalCreatorName(platform, input) {
     return uidMatch ? `B站用户 ${uidMatch[1]}` : "";
   }
 
+  if (platform.id === "xiaohongshu") {
+    const xiaohongshuShare = parseXiaohongshuShareText(trimmedInput);
+    if (xiaohongshuShare.name) return xiaohongshuShare.name;
+  }
+
   const normalizedUrl = normalizeExternalUrl(trimmedInput);
 
   try {
@@ -636,7 +680,28 @@ function useAutoCreatorName(platform, form, setForm) {
 
   useEffect(() => {
     const homepageUrl = form.homepageUrl.trim();
-    if (!homepageUrl || form.creator.trim() || platform.id === "rss") {
+    if (!homepageUrl || platform.id === "rss") {
+      setNameStatus("");
+      return undefined;
+    }
+
+    if (platform.id === "xiaohongshu") {
+      const parsedShare = parseXiaohongshuShareText(homepageUrl);
+      if (parsedShare.url || parsedShare.name) {
+        setForm((current) => {
+          if (current.homepageUrl.trim() !== homepageUrl) return current;
+          return {
+            ...current,
+            homepageUrl: parsedShare.url || current.homepageUrl,
+            creator: current.creator.trim() ? current.creator : parsedShare.name || current.creator
+          };
+        });
+      }
+      setNameStatus("");
+      return undefined;
+    }
+
+    if (form.creator.trim()) {
       setNameStatus("");
       return undefined;
     }
@@ -1129,24 +1194,27 @@ export default function App() {
           creators: platform.creators.map((creator) => {
             if (creator.id !== creatorId) return creator;
 
-            const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(formData.homepageUrl) : null;
-            const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(formData.homepageUrl) : "";
+            const xiaohongshuShare = isXiaohongshuPlatform(platform) ? parseXiaohongshuShareText(formData.homepageUrl) : { name: "", url: "" };
+            const normalizedInputHomepageUrl = xiaohongshuShare.url || formData.homepageUrl;
+            const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(normalizedInputHomepageUrl) : null;
+            const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(normalizedInputHomepageUrl) : "";
             const creatorName =
               formData.creator.trim() ||
+              xiaohongshuShare.name ||
               (platform.id === "youtube"
                 ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道"
                 : platform.id === "bilibili" && bilibiliUid
                   ? `B站用户 ${bilibiliUid}`
                   : isCustomPlatform(platform)
-                    ? inferLocalCreatorName(platform, formData.homepageUrl) || `${platform.name}博主`
+                    ? inferLocalCreatorName(platform, normalizedInputHomepageUrl) || `${platform.name}博主`
                   : "");
             const channelId = youtubeInfo?.sourceId || "";
             const homepageUrl =
               platform.id === "youtube"
                 ? youtubeInfo.homepageUrl
                 : platform.id === "bilibili"
-                  ? normalizeBilibiliHomepage(formData.homepageUrl)
-                : normalizeExternalUrl(formData.homepageUrl);
+                  ? normalizeBilibiliHomepage(normalizedInputHomepageUrl)
+                : normalizeExternalUrl(normalizedInputHomepageUrl);
 
             return {
               ...creator,
@@ -1496,24 +1564,27 @@ export default function App() {
       platforms.map((platform) => {
         if (platform.id !== formData.platformId) return platform;
 
-        const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(formData.homepageUrl) : null;
-        const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(formData.homepageUrl) : "";
+        const xiaohongshuShare = isXiaohongshuPlatform(platform) ? parseXiaohongshuShareText(formData.homepageUrl) : { name: "", url: "" };
+        const normalizedInputHomepageUrl = xiaohongshuShare.url || formData.homepageUrl;
+        const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(normalizedInputHomepageUrl) : null;
+        const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(normalizedInputHomepageUrl) : "";
         const creatorName =
           formData.creator.trim() ||
+          xiaohongshuShare.name ||
           (platform.id === "youtube"
             ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道"
             : platform.id === "bilibili" && bilibiliUid
               ? `B站用户 ${bilibiliUid}`
               : isCustomPlatform(platform)
-                ? inferLocalCreatorName(platform, formData.homepageUrl) || `${platform.name}博主`
+                ? inferLocalCreatorName(platform, normalizedInputHomepageUrl) || `${platform.name}博主`
               : "");
         const channelId = youtubeInfo?.sourceId || "";
         const homepageUrl =
           platform.id === "youtube"
             ? youtubeInfo.homepageUrl
             : platform.id === "bilibili"
-              ? normalizeBilibiliHomepage(formData.homepageUrl)
-            : normalizeExternalUrl(formData.homepageUrl);
+              ? normalizeBilibiliHomepage(normalizedInputHomepageUrl)
+            : normalizeExternalUrl(normalizedInputHomepageUrl);
         const sourceId = platform.id === "youtube" ? channelId : platform.id === "bilibili" ? bilibiliUid : `manual-${Date.now()}`;
         const creatorRecordId = channelId || bilibiliUid || `manual-${Date.now()}`;
         const feedUrl = youtubeInfo?.feedUrl || "";
@@ -2239,6 +2310,15 @@ function ManualAddModal({ platform, onClose, onAdd }) {
 
   function handleChange(event) {
     const { name, value } = event.target;
+    if (isXiaohongshuPlatform(platform) && name === "homepageUrl") {
+      const parsedShare = parseXiaohongshuShareText(value);
+      setForm((current) => ({
+        ...current,
+        homepageUrl: parsedShare.url || value,
+        creator: current.creator.trim() ? current.creator : parsedShare.name || current.creator
+      }));
+      return;
+    }
     setForm((current) => ({ ...current, [name]: value }));
   }
 
@@ -2296,6 +2376,11 @@ function ManualAddModal({ platform, onClose, onAdd }) {
               先手动添加 B站 UP 主主页，作为主页入口使用。
             </span>
           )}
+          {isXiaohongshuPlatform(platform) && (
+            <span className="field-note">
+              可以直接粘贴小红书主页分享文案，follow 会自动识别博主名和链接。
+            </span>
+          )}
         </label>
 
         {!isRss && !isYouTube && !isBilibili && !isCustom && (
@@ -2333,6 +2418,15 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
 
   function handleChange(event) {
     const { name, value } = event.target;
+    if (isXiaohongshuPlatform(platform) && name === "homepageUrl") {
+      const parsedShare = parseXiaohongshuShareText(value);
+      setForm((current) => ({
+        ...current,
+        homepageUrl: parsedShare.url || value,
+        creator: current.creator.trim() ? current.creator : parsedShare.name || current.creator
+      }));
+      return;
+    }
     setForm((current) => ({ ...current, [name]: value }));
   }
 
@@ -2371,6 +2465,11 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
           {isBilibili && (
             <span className="field-note">
               先手动添加 B站 UP 主主页，作为主页入口使用。
+            </span>
+          )}
+          {isXiaohongshuPlatform(platform) && (
+            <span className="field-note">
+              可以直接粘贴小红书主页分享文案，follow 会自动识别博主名和链接。
             </span>
           )}
         </label>
