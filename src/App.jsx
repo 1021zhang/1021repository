@@ -440,7 +440,7 @@ function tryOpenXiaohongshuApp(userId, fallbackUrl) {
   }, 600);
 }
 
-async function openXiaohongshuProfile(homepageUrl) {
+function openXiaohongshuProfile(homepageUrl) {
   const parsedShare = parseXiaohongshuShareText(homepageUrl);
   const finalUrl = normalizeExternalUrl(parsedShare.url || homepageUrl);
   const userId = extractXiaohongshuUserId(finalUrl);
@@ -449,33 +449,48 @@ async function openXiaohongshuProfile(homepageUrl) {
     showExternalToast("链接无效，无法打开");
     return;
   }
-  if (userId) {
-    tryOpenXiaohongshuApp(userId, finalUrl);
+
+  showExternalToast("正在打开小红书…");
+
+  if (!userId) {
+    window.location.href = finalUrl;
     return;
   }
 
-  try {
-    const parsedUrl = new URL(finalUrl);
-    const hostname = parsedUrl.hostname.replace(/^www\./, "");
-
-    if (hostname === "xhslink.com") {
-      const response = await fetch(`/api/resolve-xhs-link?url=${encodeURIComponent(finalUrl)}`);
-      const data = await response.json().catch(() => ({}));
-      const fallbackUrl = normalizeExternalUrl(data.finalUrl || data.originalUrl || finalUrl) || finalUrl;
-
-      if (data.userId) {
-        tryOpenXiaohongshuApp(data.userId, fallbackUrl);
-        return;
-      }
-
-      openExternalSafely(fallbackUrl);
-      return;
-    }
-  } catch {
-    // Fall back to the original link below.
+  if (window.__followXhsFallbackTimer) {
+    window.clearTimeout(window.__followXhsFallbackTimer);
+  }
+  if (typeof window.__followXhsCleanup === "function") {
+    window.__followXhsCleanup();
   }
 
-  openExternalSafely(finalUrl);
+  const appScheme = `xhsdiscover://user/${encodeURIComponent(userId)}`;
+  let pageLeft = document.hidden;
+  const markPageHidden = () => {
+    if (document.hidden) pageLeft = true;
+  };
+  const markPageLeft = () => {
+    pageLeft = true;
+  };
+
+  window.__followXhsCleanup = () => {
+    document.removeEventListener("visibilitychange", markPageHidden);
+    window.removeEventListener("pagehide", markPageLeft);
+    window.__followXhsCleanup = null;
+  };
+
+  document.addEventListener("visibilitychange", markPageHidden);
+  window.addEventListener("pagehide", markPageLeft, { once: true });
+  window.location.href = appScheme;
+
+  window.__followXhsFallbackTimer = window.setTimeout(() => {
+    if (typeof window.__followXhsCleanup === "function") {
+      window.__followXhsCleanup();
+    }
+    window.__followXhsFallbackTimer = null;
+    if (pageLeft || document.hidden) return;
+    window.location.href = finalUrl;
+  }, 500);
 }
 
 function getCurrentTime() {
