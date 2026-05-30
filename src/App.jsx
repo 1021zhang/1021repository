@@ -291,6 +291,7 @@ function normalizeExternalUrl(url) {
   if (!url) return "";
   const trimmedUrl = String(url).trim();
   const lowerUrl = trimmedUrl.toLowerCase();
+
   if (
     trimmedUrl === "" ||
     trimmedUrl === "#" ||
@@ -300,8 +301,26 @@ function normalizeExternalUrl(url) {
   ) {
     return "";
   }
-  if (lowerUrl.startsWith("http://") || lowerUrl.startsWith("https://")) return trimmedUrl;
-  return `https://${trimmedUrl}`;
+
+  if (/\s/.test(trimmedUrl)) return "";
+
+  const candidateUrl =
+    lowerUrl.startsWith("http://") || lowerUrl.startsWith("https://") ? trimmedUrl : `https://${trimmedUrl}`;
+
+  try {
+    const parsedUrl = new URL(candidateUrl);
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) return "";
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const hasValidHost =
+      hostname === "localhost" ||
+      hostname.includes(".") ||
+      /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname);
+
+    return hasValidHost ? parsedUrl.toString() : "";
+  } catch {
+    return "";
+  }
 }
 
 function normalizeBilibiliHomepage(input) {
@@ -349,9 +368,31 @@ function isMockOrEmptyUrl(url) {
   return normalizeExternalUrl(url) === "";
 }
 
+function showExternalToast(message) {
+  if (typeof document === "undefined") return;
+
+  const existingToast = document.querySelector(".external-toast");
+  if (existingToast) existingToast.remove();
+
+  const toast = document.createElement("div");
+  toast.className = "external-toast";
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  window.clearTimeout(window.__followExternalToastTimer);
+  window.__followExternalToastTimer = window.setTimeout(() => {
+    toast.remove();
+  }, 1800);
+}
+
 function openExternalSafely(url, options = {}) {
-  const finalUrl = options.skipNormalize ? String(url || "").trim() : normalizeExternalUrl(url);
-  if (!finalUrl) return false;
+  const finalUrl = normalizeExternalUrl(url);
+  if (!finalUrl) {
+    showExternalToast("链接无效，无法打开");
+    return false;
+  }
+
+  showExternalToast(options.message || "正在打开...");
 
   try {
     const externalWindow = window.open(finalUrl, "_blank", "noopener,noreferrer");
@@ -406,7 +447,10 @@ async function openXiaohongshuProfile(homepageUrl) {
   const finalUrl = normalizeExternalUrl(parsedShare.url || homepageUrl);
   const userId = extractXiaohongshuUserId(finalUrl);
 
-  if (!finalUrl) return;
+  if (!finalUrl) {
+    showExternalToast("链接无效，无法打开");
+    return;
+  }
   if (userId) {
     tryOpenXiaohongshuApp(userId, finalUrl);
     return;
@@ -1134,31 +1178,33 @@ export default function App() {
   }
 
   function openExternalLink({ platform, creator, update }) {
-    const finalUrl = normalizeExternalUrl(update?.url || update?.link || update?.contentUrl || creator?.homepageUrl || platform?.homepageUrl);
+    const targetUrl =
+      update?.url ||
+      update?.link ||
+      update?.contentUrl ||
+      update?.videoUrl ||
+      creator?.homepageUrl ||
+      platform?.homepageUrl;
 
-    if (!finalUrl) {
-      alert("当前是模拟内容，暂无真实链接。你可以手动添加真实链接。");
-      return;
-    }
-
-    if (update?.id && creator?.id && platform?.id) {
+    const opened = openExternalSafely(targetUrl, { platformName: platform?.name });
+    if (opened && update?.id && creator?.id && platform?.id) {
       markUpdateAsRead(platform.id, creator.id, update.id);
     }
-
-    openExternalSafely(finalUrl);
   }
 
   function openCreatorHomepage(platform, update) {
     const creator = platform.creators.find((item) => item.name === update.creatorName);
-    const finalUrl = normalizeExternalUrl(creator?.homepageUrl || update.url);
+    const targetUrl = creator?.homepageUrl || update?.homepageUrl || update?.url || update?.link;
 
-    if (!finalUrl) {
-      alert("当前没有可打开的主页链接");
+    if (isXiaohongshuPlatform(platform)) {
+      openXiaohongshuProfile(targetUrl);
       return;
     }
 
-    if (isXiaohongshuPlatform(platform)) {
-      openXiaohongshuProfile(finalUrl);
+    const finalUrl = normalizeExternalUrl(targetUrl);
+
+    if (!finalUrl) {
+      openExternalSafely(targetUrl);
       return;
     }
 
@@ -1166,7 +1212,8 @@ export default function App() {
   }
 
   function openFollowedCreatorHomepage(platform, creator) {
-    const finalUrl = normalizeExternalUrl(creator?.homepageUrl);
+    const targetUrl = creator?.homepageUrl;
+    const finalUrl = normalizeExternalUrl(targetUrl);
 
     if (import.meta.env.DEV) {
       console.log("follow external homepage", {
@@ -1177,13 +1224,13 @@ export default function App() {
       });
     }
 
-    if (!finalUrl) {
-      alert("当前没有可打开的主页链接");
+    if (isXiaohongshuPlatform(platform)) {
+      openXiaohongshuProfile(targetUrl);
       return;
     }
 
-    if (isXiaohongshuPlatform(platform)) {
-      openXiaohongshuProfile(finalUrl);
+    if (!finalUrl) {
+      openExternalSafely(targetUrl);
       return;
     }
 
