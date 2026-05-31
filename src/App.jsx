@@ -5,8 +5,10 @@ const AUTO_YOUTUBE_SYNC_STORAGE_KEY = "follow_last_auto_youtube_sync_at";
 const GLOBAL_SYNC_STORAGE_KEY = "follow_last_global_sync_at";
 const PLATFORM_ORDER_STORAGE_KEY = "follow_platform_order";
 const PLATFORM_VISIBILITY_STORAGE_KEY = "follow_platform_visibility";
-const DAILY_ENGLISH_FEED_URL = "https://learningenglish.voanews.com/api/zbmroml-vomx-tpeqboo_";
-const DAILY_ENGLISH_HOME_URL = "https://www.voanews.com/learningenglish";
+const DAILY_ENGLISH_SOURCE_ID = "bbc_6_minute_english";
+const DAILY_ENGLISH_SOURCE_NAME = "BBC 6 Minute English";
+const DAILY_ENGLISH_FEED_URL = "https://podcasts.files.bbci.co.uk/p02pc9tn.rss";
+const DAILY_ENGLISH_HOME_URL = "https://www.bbc.co.uk/learningenglish/english/features/6-minute-english";
 const DEFAULT_PLATFORM_ORDER = ["youtube", "daily_english", "instagram", "bilibili", "xiaohongshu", "weibo", "rss"];
 const LEGACY_DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
 const DEFAULT_PLATFORM_VISIBILITY = {
@@ -32,8 +34,8 @@ const initialPlatforms = [
     homepageUrl: DAILY_ENGLISH_HOME_URL,
     connected: true,
     creators: [
-      createCreator("daily_english", "VOA Learning English", DAILY_ENGLISH_HOME_URL, "voa_learning_english", [], {
-        id: "voa_learning_english",
+      createCreator("daily_english", DAILY_ENGLISH_SOURCE_NAME, DAILY_ENGLISH_HOME_URL, DAILY_ENGLISH_SOURCE_ID, [], {
+        id: DAILY_ENGLISH_SOURCE_ID,
         feedUrl: DAILY_ENGLISH_FEED_URL,
         syncStatus: "active",
         syncFailCount: 0
@@ -114,6 +116,23 @@ function normalizePlatforms(platforms) {
 function normalizeCreators(platform) {
   if (Array.isArray(platform.creators)) {
     return platform.creators.map((creator) => {
+      if (platform.id === "daily_english" && (creator.id === "voa_learning_english" || creator.sourceId === "voa_learning_english")) {
+        return {
+          ...creator,
+          id: DAILY_ENGLISH_SOURCE_ID,
+          name: DAILY_ENGLISH_SOURCE_NAME,
+          avatar: "B",
+          homepageUrl: DAILY_ENGLISH_HOME_URL,
+          sourceId: DAILY_ENGLISH_SOURCE_ID,
+          feedUrl: DAILY_ENGLISH_FEED_URL,
+          updates: [],
+          syncStatus: "active",
+          syncFailCount: 0,
+          lastSyncError: null,
+          lastSyncErrorAt: ""
+        };
+      }
+
       const youtubeSourceId = platform.id === "youtube" ? normalizeYouTubeChannelId(creator.sourceId) : creator.sourceId;
       const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(creator.homepageUrl || creator.handle || "") : null;
       const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(creator.uid || creator.sourceId || creator.homepageUrl) : "";
@@ -992,7 +1011,7 @@ function getConnectedNote(platform) {
 }
 
 function getPlatformSupplementText(platform, creatorCount) {
-  if (platform.id === "daily_english") return creatorCount > 0 ? "每天读一篇，不刷信息流" : "添加英语阅读源";
+  if (platform.id === "daily_english") return creatorCount > 0 ? "每天 6 分钟，轻量练英语" : "添加英语阅读源";
   if (platform.id === "rss") return creatorCount > 0 ? "高级订阅源入口" : "添加高级订阅源";
   if (isCustomPlatform(platform)) return creatorCount > 0 ? "展开查看常用主页" : platform.description || "轻入口 · 手动添加主页";
   if (platform.id === "bilibili") return creatorCount > 0 ? "展开查看常用主页" : "手动添加 B站主页链接";
@@ -1049,7 +1068,7 @@ function getCreatorLabel(platform) {
 
 function getCreatorPlaceholder(platform) {
   if (platform.id === "rss") return "例如：Design Feed";
-  if (platform.id === "daily_english") return "VOA Learning English";
+  if (platform.id === "daily_english") return DAILY_ENGLISH_SOURCE_NAME;
   if (platform.id === "youtube") return "例如：MKBHD";
   if (platform.id === "bilibili") return "例如：影视飓风";
   if (platform.id === "instagram") return "例如：design";
@@ -2320,7 +2339,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
               key={creator.id}
               creator={creator}
               update={creator.unreadUpdates[0]}
-              actionText={platform.id === "daily_english" ? "打开文章 →" : ""}
+              actionText={platform.id === "daily_english" ? "打开内容 →" : ""}
               onClick={(event) => {
                 event.stopPropagation();
                 onOpenUpdate({ platform, creator, update: creator.unreadUpdates[0] });
@@ -2422,7 +2441,7 @@ function PlatformDetail({
               <article className="detail-card" key={`${creator.id}-${update.id}`}>
                 <CreatorRow creator={creator} update={update} />
                 <button className="open-content" type="button" onClick={() => onOpenUpdate({ platform, creator, update })}>
-                  {platform.id === "daily_english" ? "打开文章 →" : platform.id === "youtube" ? "打开内容 →" : "进入主页 →"}
+                  {platform.id === "daily_english" ? "打开内容 →" : platform.id === "youtube" ? "打开内容 →" : "进入主页 →"}
                 </button>
               </article>
             ))
@@ -2445,7 +2464,7 @@ function PlatformDetail({
       {readUpdates.length > 0 && (
         <section className="read-area">
           <button className="read-toggle" type="button" onClick={() => setShowReadUpdates((current) => !current)}>
-            {platform.id === "daily_english" ? "已读文章" : "已读更新"} {readUpdates.length} 条 {showReadUpdates ? "∧" : "∨"}
+            {platform.id === "daily_english" ? "已读内容" : "已读更新"} {readUpdates.length} 条 {showReadUpdates ? "∧" : "∨"}
           </button>
 
           {showReadUpdates && (
@@ -2456,7 +2475,7 @@ function PlatformDetail({
                     <strong>{update.creatorName}</strong>
                     <p>{update.title}</p>
                     <button type="button" onClick={() => onOpenHomepage(platform, update)}>
-                      {platform.id === "daily_english" ? "打开文章 →" : "进入主页 →"}
+                      {platform.id === "daily_english" ? "打开内容 →" : "进入主页 →"}
                     </button>
                   </div>
                 </div>
@@ -2706,7 +2725,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
             name="homepageUrl"
             value={form.homepageUrl}
             onChange={handleChange}
-            placeholder={isYouTube ? "https://www.youtube.com/@casey" : isBilibili ? "https://space.bilibili.com/123456" : isDailyEnglish ? "https://learningenglish.voanews.com/" : "https://..."}
+            placeholder={isYouTube ? "https://www.youtube.com/@casey" : isBilibili ? "https://space.bilibili.com/123456" : isDailyEnglish ? DAILY_ENGLISH_HOME_URL : "https://..."}
           />
           {isYouTube && (
             <span className="field-note">
@@ -2831,7 +2850,7 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
               name="homepageUrl"
               value={form.homepageUrl}
               onChange={handleChange}
-              placeholder="https://learningenglish.voanews.com/"
+              placeholder={DAILY_ENGLISH_HOME_URL}
             />
           </label>
         )}
