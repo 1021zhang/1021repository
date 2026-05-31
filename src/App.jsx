@@ -6,6 +6,7 @@ const GLOBAL_SYNC_STORAGE_KEY = "follow_last_global_sync_at";
 const PLATFORM_ORDER_STORAGE_KEY = "follow_platform_order";
 const PLATFORM_VISIBILITY_STORAGE_KEY = "follow_platform_visibility";
 const DAILY_ENGLISH_FEED_URL = "https://learningenglish.voanews.com/api/zbmroml-vomx-tpeqboo_";
+const DAILY_ENGLISH_HOME_URL = "https://www.voanews.com/learningenglish";
 const DEFAULT_PLATFORM_ORDER = ["youtube", "daily_english", "instagram", "bilibili", "xiaohongshu", "weibo", "rss"];
 const LEGACY_DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
 const DEFAULT_PLATFORM_VISIBILITY = {
@@ -28,10 +29,10 @@ const initialPlatforms = [
     type: "reading",
     syncMode: "rss",
     syncType: "rss",
-    homepageUrl: "https://learningenglish.voanews.com/",
+    homepageUrl: DAILY_ENGLISH_HOME_URL,
     connected: true,
     creators: [
-      createCreator("daily_english", "VOA Learning English", "https://learningenglish.voanews.com/", "voa_learning_english", [], {
+      createCreator("daily_english", "VOA Learning English", DAILY_ENGLISH_HOME_URL, "voa_learning_english", [], {
         id: "voa_learning_english",
         feedUrl: DAILY_ENGLISH_FEED_URL,
         syncStatus: "active",
@@ -1271,7 +1272,10 @@ export default function App() {
       creator?.homepageUrl ||
       platform?.homepageUrl;
 
-    const opened = openExternalSafely(targetUrl, { platformName: platform?.name });
+    const opened = openExternalSafely(targetUrl, {
+      platformName: platform?.name,
+      invalidMessage: platform?.id === "daily_english" ? "文章链接暂时无法打开" : undefined
+    });
     if (opened && update?.id && creator?.id && platform?.id) {
       markUpdateAsRead(platform.id, creator.id, update.id);
     }

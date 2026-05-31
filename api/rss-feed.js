@@ -35,23 +35,29 @@ function normalizeFeedUrl(value) {
 
   try {
     const url = new URL(String(value).trim());
+    if (url.protocol === "http:") url.protocol = "https:";
     return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
   } catch {
     return "";
   }
 }
 
-function normalizeItemUrl(value) {
-  if (!value) return "";
+function normalizeItemUrl(value, feedUrl) {
+  const trimmedValue = String(value || "").trim();
+  if (!trimmedValue) return "";
 
   try {
-    return new URL(String(value).trim()).toString();
+    const normalizedValue = trimmedValue.startsWith("//") ? `https:${trimmedValue}` : trimmedValue;
+    const parsedUrl = new URL(normalizedValue, feedUrl);
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) return "";
+    if (parsedUrl.protocol === "http:") parsedUrl.protocol = "https:";
+    return parsedUrl.toString();
   } catch {
-    return String(value).trim();
+    return "";
   }
 }
 
-function parseItems(xml) {
+function parseItems(xml, feedUrl) {
   const rssItems = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
   const atomEntries = xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
   const entries = rssItems.length > 0 ? rssItems : atomEntries;
@@ -62,7 +68,7 @@ function parseItems(xml) {
       const publishedAt = isAtom
         ? readTag(entry, "published") || readTag(entry, "updated")
         : readTag(entry, "pubDate") || readTag(entry, "updated");
-      const url = normalizeItemUrl(isAtom ? readAtomLink(entry) : readRssLink(entry));
+      const url = normalizeItemUrl(isAtom ? readAtomLink(entry) : readRssLink(entry), feedUrl);
       const title = stripHtml(readTag(entry, "title"));
       const summary = stripHtml(isAtom ? readTag(entry, "summary") || readTag(entry, "content") : readTag(entry, "description"));
 
@@ -76,7 +82,7 @@ function parseItems(xml) {
         sortTime: Date.parse(publishedAt)
       };
     })
-    .filter((item) => item.title || item.url)
+    .filter((item) => item.url && (item.title || item.summary))
     .sort((first, second) => {
       const firstHasTime = Number.isFinite(first.sortTime);
       const secondHasTime = Number.isFinite(second.sortTime);
@@ -132,7 +138,7 @@ export default async function handler(request, response) {
       return;
     }
 
-    const items = parseItems(xml);
+    const items = parseItems(xml, feedUrl);
     if (items.length === 0) {
       response.status(502).json({
         error: "no_items_parsed",
