@@ -442,6 +442,14 @@ button:focus-visible {
   line-height: 1.4;
 }
 
+.creator-info .creator-action {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .more-line {
   width: fit-content;
   margin-left: 60px;

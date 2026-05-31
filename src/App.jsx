@@ -5,10 +5,12 @@ const AUTO_YOUTUBE_SYNC_STORAGE_KEY = "follow_last_auto_youtube_sync_at";
 const GLOBAL_SYNC_STORAGE_KEY = "follow_last_global_sync_at";
 const PLATFORM_ORDER_STORAGE_KEY = "follow_platform_order";
 const PLATFORM_VISIBILITY_STORAGE_KEY = "follow_platform_visibility";
-const DEFAULT_PLATFORM_ORDER = ["youtube", "instagram", "bilibili", "xiaohongshu", "weibo", "rss"];
+const DAILY_ENGLISH_FEED_URL = "https://learningenglish.voanews.com/api/zbmroml-vomx-tpeqboo_";
+const DEFAULT_PLATFORM_ORDER = ["youtube", "daily_english", "instagram", "bilibili", "xiaohongshu", "weibo", "rss"];
 const LEGACY_DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
 const DEFAULT_PLATFORM_VISIBILITY = {
   youtube: true,
+  daily_english: true,
   instagram: true,
   bilibili: true,
   xiaohongshu: false,
@@ -20,6 +22,23 @@ const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
 const initialPlatforms = [
   { id: "youtube", name: "YouTube", syncType: "manual", homepageUrl: "https://www.youtube.com", connected: false, creators: [] },
+  {
+    id: "daily_english",
+    name: "每日英语",
+    type: "reading",
+    syncMode: "rss",
+    syncType: "rss",
+    homepageUrl: "https://learningenglish.voanews.com/",
+    connected: true,
+    creators: [
+      createCreator("daily_english", "VOA Learning English", "https://learningenglish.voanews.com/", "voa_learning_english", [], {
+        id: "voa_learning_english",
+        feedUrl: DAILY_ENGLISH_FEED_URL,
+        syncStatus: "active",
+        syncFailCount: 0
+      })
+    ]
+  },
   { id: "instagram", name: "Instagram", syncType: "manual", homepageUrl: "https://www.instagram.com", connected: false, creators: [] },
   { id: "bilibili", name: "B站", syncType: "manual", homepageUrl: "https://www.bilibili.com", connected: false, creators: [] },
   { id: "xiaohongshu", name: "小红书", syncType: "manual", homepageUrl: "https://www.xiaohongshu.com", connected: false, creators: [] },
@@ -893,6 +912,11 @@ function getReadUpdates(platform) {
 function getStatusText(platform, unreadCreators) {
   const creatorCount = platform.creators.filter((creator) => creator.selected !== false).length;
 
+  if (platform.id === "daily_english") {
+    if (creatorCount === 0) return "每日一篇 · 还没添加阅读源";
+    return unreadCreators.length > 0 ? "每日一篇 · 今日未读" : "每日一篇 · 暂无新文章";
+  }
+
   if (isCustomPlatform(platform)) {
     return creatorCount > 0 ? `轻入口 · 已添加 ${creatorCount} 位博主` : "轻入口 · 还没添加博主";
   }
@@ -919,6 +943,8 @@ function getHomeStatusInfo(platform, unreadCreators) {
   const label =
     platform.id === "youtube"
       ? "自动同步"
+      : platform.id === "daily_english"
+        ? "每日一篇"
       : platform.id === "rss"
         ? "高级订阅源"
         : isCustomPlatform(platform)
@@ -929,6 +955,11 @@ function getHomeStatusInfo(platform, unreadCreators) {
     if (unreadCreators.length > 0) return { label, text: `${unreadCreators.length} 位博主更新` };
     if (creatorCount > 0) return { label, text: "暂无新更新" };
     return { label, text: `已添加 ${creatorCount} 个频道` };
+  }
+
+  if (platform.id === "daily_english") {
+    if (creatorCount === 0) return { label, text: "还没添加阅读源" };
+    return { label, text: unreadCreators.length > 0 ? "今日未读" : "暂无新文章" };
   }
 
   if (platform.id === "bilibili") {
@@ -944,6 +975,7 @@ function getHomeStatusInfo(platform, unreadCreators) {
 
 function getActionText(platform) {
   if (platform.id === "youtube") return "添加 YouTube 频道";
+  if (platform.id === "daily_english") return "添加英语阅读源";
   if (platform.id === "bilibili") return "添加 B站 UP 主";
   if (platform.id === "xiaohongshu") return "添加小红书博主";
   if (platform.id === "weibo") return "添加微博博主";
@@ -959,6 +991,7 @@ function getConnectedNote(platform) {
 }
 
 function getPlatformSupplementText(platform, creatorCount) {
+  if (platform.id === "daily_english") return creatorCount > 0 ? "每天读一篇，不刷信息流" : "添加英语阅读源";
   if (platform.id === "rss") return creatorCount > 0 ? "高级订阅源入口" : "添加高级订阅源";
   if (isCustomPlatform(platform)) return creatorCount > 0 ? "展开查看常用主页" : platform.description || "轻入口 · 手动添加主页";
   if (platform.id === "bilibili") return creatorCount > 0 ? "展开查看常用主页" : "手动添加 B站主页链接";
@@ -990,6 +1023,7 @@ function getAddChoiceText(platform) {
 
 function getManualModalTitle(platform) {
   if (platform.id === "rss") return "添加 RSS 订阅源";
+  if (platform.id === "daily_english") return "添加英语阅读源";
   if (platform.id === "youtube") return "添加 YouTube 频道";
   if (platform.id === "bilibili") return "添加 B站 UP 主";
   return `添加 ${platform.name} 博主`;
@@ -997,6 +1031,7 @@ function getManualModalTitle(platform) {
 
 function getHomepageLabel(platform) {
   if (platform.id === "rss") return "RSS 链接";
+  if (platform.id === "daily_english") return "主页链接，可选";
   if (platform.id === "youtube") return "YouTube 频道主页链接，可选";
   if (platform.id === "bilibili") return "B站主页链接或 UID";
   if (platform.id === "instagram") return "Instagram 主页链接";
@@ -1005,6 +1040,7 @@ function getHomepageLabel(platform) {
 
 function getCreatorLabel(platform) {
   if (platform.id === "rss") return "订阅源名称";
+  if (platform.id === "daily_english") return "来源名称";
   if (platform.id === "youtube") return "频道名";
   if (platform.id === "bilibili") return "UP 主名";
   return "博主名";
@@ -1012,6 +1048,7 @@ function getCreatorLabel(platform) {
 
 function getCreatorPlaceholder(platform) {
   if (platform.id === "rss") return "例如：Design Feed";
+  if (platform.id === "daily_english") return "VOA Learning English";
   if (platform.id === "youtube") return "例如：MKBHD";
   if (platform.id === "bilibili") return "例如：影视飓风";
   if (platform.id === "instagram") return "例如：design";
@@ -1242,7 +1279,10 @@ export default function App() {
 
   function openCreatorHomepage(platform, update) {
     const creator = platform.creators.find((item) => item.name === update.creatorName);
-    const targetUrl = creator?.homepageUrl || update?.homepageUrl || update?.url || update?.link || update?.href;
+    const targetUrl =
+      platform.id === "daily_english"
+        ? update?.url || update?.link || update?.href || creator?.homepageUrl
+        : creator?.homepageUrl || update?.homepageUrl || update?.url || update?.link || update?.href;
     const xiaohongshuUrl = isXiaohongshuPlatform(platform)
       ? normalizeExternalUrl(parseXiaohongshuShareText(targetUrl).url || targetUrl)
       : "";
@@ -1325,11 +1365,14 @@ export default function App() {
             const normalizedInputHomepageUrl = xiaohongshuShare.url || formData.homepageUrl;
             const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(normalizedInputHomepageUrl) : null;
             const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(normalizedInputHomepageUrl) : "";
+            const isDailyEnglish = platform.id === "daily_english";
             const creatorName =
               formData.creator.trim() ||
               xiaohongshuShare.name ||
               (platform.id === "youtube"
                 ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道"
+                : isDailyEnglish
+                  ? "英语阅读源"
                 : platform.id === "bilibili" && bilibiliUid
                   ? `B站用户 ${bilibiliUid}`
                   : isCustomPlatform(platform)
@@ -1341,6 +1384,8 @@ export default function App() {
                 ? youtubeInfo.homepageUrl
                 : platform.id === "bilibili"
                   ? normalizeBilibiliHomepage(normalizedInputHomepageUrl)
+                : isDailyEnglish
+                  ? normalizeExternalUrl(normalizedInputHomepageUrl) || normalizeExternalUrl(formData.feedUrl)
                 : normalizeExternalUrl(normalizedInputHomepageUrl);
 
             return {
@@ -1349,7 +1394,7 @@ export default function App() {
               avatar: creatorName.slice(0, 1).toUpperCase(),
               homepageUrl,
               sourceId: platform.id === "youtube" ? channelId : platform.id === "bilibili" ? bilibiliUid : creator.sourceId,
-              feedUrl: platform.id === "youtube" ? youtubeInfo.feedUrl : creator.feedUrl,
+              feedUrl: platform.id === "youtube" ? youtubeInfo.feedUrl : isDailyEnglish ? normalizeExternalUrl(formData.feedUrl) : creator.feedUrl,
               handle: platform.id === "youtube" ? youtubeInfo.handle : creator.handle,
               uid: platform.id === "bilibili" ? bilibiliUid : creator.uid,
               knownGoodFeedUrl: platform.id === "youtube" ? "" : creator.knownGoodFeedUrl,
@@ -1659,29 +1704,160 @@ export default function App() {
     return { addedCount: updatedCreatorCount, failedCount, debugInfo: firstDebugInfo, temporarilyFailedCount, needsAttentionCount };
   }
 
+  async function syncDailyEnglish(options = {}) {
+    const basePlatforms = options.platforms || loadPlatforms();
+    const dailyEnglish = basePlatforms.find((platform) => platform.id === "daily_english");
+    const sources = dailyEnglish?.creators.filter((creator) => creator.selected !== false && normalizeExternalUrl(creator.feedUrl)) || [];
+
+    if (!dailyEnglish || sources.length === 0) return { addedCount: 0, failedCount: 0 };
+
+    const results = await Promise.all(
+      sources.map(async (source) => {
+        const feedUrl = normalizeExternalUrl(source.feedUrl);
+
+        try {
+          const response = await fetch(`/api/rss-feed?feedUrl=${encodeURIComponent(feedUrl)}`);
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            return {
+              sourceId: source.id,
+              failed: true,
+              errorCode: data.error || "feed_fetch_failed",
+              errorMessage: data.message || "RSS 源暂时无法同步"
+            };
+          }
+
+          const items = Array.isArray(data.items) ? data.items : [];
+          const latestItem = items[0];
+          if (!latestItem) {
+            return { sourceId: source.id, failed: false, item: null, feedUrl: data.feedUrl || feedUrl };
+          }
+
+          return {
+            sourceId: source.id,
+            failed: false,
+            item: latestItem,
+            feedUrl: data.feedUrl || feedUrl
+          };
+        } catch (error) {
+          return {
+            sourceId: source.id,
+            failed: true,
+            errorCode: "network_request_failed",
+            errorMessage: error instanceof Error ? error.message : String(error)
+          };
+        }
+      })
+    );
+
+    const resultMap = new Map(results.map((result) => [result.sourceId, result]));
+    let addedCount = 0;
+    const syncedAt = new Date().toISOString();
+    const failedCount = results.filter((result) => result.failed).length;
+
+    const nextPlatforms = basePlatforms.map((platform) => {
+      if (platform.id !== "daily_english") return platform;
+
+      return {
+        ...platform,
+        connected: platform.creators.length > 0,
+        lastSyncedAt: syncedAt,
+        creators: platform.creators.map((creator) => {
+          const result = resultMap.get(creator.id);
+          if (!result) return creator;
+
+          if (result.failed) {
+            const nextFailCount = Number(creator.syncFailCount || 0) + 1;
+            return {
+              ...creator,
+              syncFailCount: nextFailCount,
+              syncStatus: "unstable",
+              lastSyncError: result.errorCode || result.errorMessage || "unknown",
+              lastSyncErrorAt: syncedAt
+            };
+          }
+
+          const baseFields = {
+            feedUrl: result.feedUrl || creator.feedUrl,
+            lastSuccessfulSyncAt: syncedAt,
+            syncFailCount: 0,
+            syncStatus: "active",
+            lastSyncError: null,
+            lastSyncErrorAt: ""
+          };
+
+          const latestItem = result.item;
+          if (!latestItem) return { ...creator, ...baseFields };
+
+          const existingKeys = new Set(
+            creator.updates.flatMap((update) => [update.id, normalizeExternalUrl(update.url)]).filter(Boolean)
+          );
+          const normalizedLatestUrl = normalizeExternalUrl(latestItem.url);
+          const latestExists = existingKeys.has(latestItem.id) || existingKeys.has(normalizedLatestUrl);
+
+          if (latestExists) {
+            const normalizedUpdates = creator.updates.map((update) => {
+              const isLatestUpdate = update.id === latestItem.id || normalizeExternalUrl(update.url) === normalizedLatestUrl;
+              return update.read || isLatestUpdate ? update : { ...update, read: true };
+            });
+
+            return { ...creator, ...baseFields, updates: normalizedUpdates };
+          }
+
+          addedCount += 1;
+          const latestUpdate = createUpdate(
+            latestItem.id || `daily-english-${Date.now()}`,
+            formatVideoTime(latestItem.publishedAt),
+            latestItem.title || "今日英语文章",
+            latestItem.url,
+            false,
+            {
+              source: "daily_english",
+              publishedAt: latestItem.publishedAt || "",
+              summary: latestItem.summary || "",
+              createdAt: new Date().toISOString()
+            }
+          );
+          const readExistingUpdates = creator.updates.map((update) => (update.read ? update : { ...update, read: true }));
+
+          return { ...creator, ...baseFields, updates: [latestUpdate, ...readExistingUpdates] };
+        })
+      };
+    });
+
+    updatePlatforms(nextPlatforms);
+    return { addedCount, failedCount };
+  }
+
   async function syncAllPlatforms() {
     setGlobalSyncState({ status: "syncing", message: "同步中...", debugInfo: null });
 
     const youtubeResult = await syncYouTubeFeeds({ silent: true });
+    const dailyEnglishResult = await syncDailyEnglish({ platforms: loadPlatforms() });
     const syncedAt = new Date().toISOString();
     saveLastGlobalSyncAt(syncedAt);
     setLastGlobalSyncAt(syncedAt);
 
-    if (youtubeResult.failedCount > 0) {
+    if (youtubeResult.failedCount > 0 || dailyEnglishResult.failedCount > 0) {
+      const failedParts = [];
+      if (youtubeResult.failedCount > 0) failedParts.push("YouTube 部分频道暂时无法同步，已保留上次成功结果");
+      if (dailyEnglishResult.failedCount > 0) failedParts.push("部分内容源暂时无法同步");
+
       setGlobalSyncState({
         status: "success",
-        message: "同步完成，YouTube 部分频道暂时无法同步，已保留上次成功结果",
+        message: `同步完成，${failedParts.join("，")}`,
         debugInfo: youtubeResult.debugInfo || null
       });
       return;
     }
 
+    const resultParts = [];
+    if (youtubeResult.addedCount > 0) resultParts.push(`YouTube 发现 ${youtubeResult.addedCount} 位博主的新更新`);
+    if (dailyEnglishResult.addedCount > 0) resultParts.push(`每日英语发现 ${dailyEnglishResult.addedCount} 篇新文章`);
+
     setGlobalSyncState({
       status: "success",
-      message:
-        youtubeResult.addedCount > 0
-          ? `同步完成，YouTube 发现 ${youtubeResult.addedCount} 位博主的新更新`
-          : "同步完成，暂无新更新",
+      message: resultParts.length > 0 ? `同步完成，${resultParts.join("，")}` : "同步完成，暂无新更新",
       debugInfo: null
     });
   }
@@ -1695,11 +1871,14 @@ export default function App() {
         const normalizedInputHomepageUrl = xiaohongshuShare.url || formData.homepageUrl;
         const youtubeInfo = platform.id === "youtube" ? resolveYouTubeChannelInfo(normalizedInputHomepageUrl) : null;
         const bilibiliUid = platform.id === "bilibili" ? extractBilibiliUid(normalizedInputHomepageUrl) : "";
+        const isDailyEnglish = platform.id === "daily_english";
         const creatorName =
           formData.creator.trim() ||
           xiaohongshuShare.name ||
           (platform.id === "youtube"
             ? youtubeInfo.handle || youtubeInfo.sourceId || "YouTube 频道"
+            : isDailyEnglish
+              ? "英语阅读源"
             : platform.id === "bilibili" && bilibiliUid
               ? `B站用户 ${bilibiliUid}`
               : isCustomPlatform(platform)
@@ -1711,10 +1890,12 @@ export default function App() {
             ? youtubeInfo.homepageUrl
             : platform.id === "bilibili"
               ? normalizeBilibiliHomepage(normalizedInputHomepageUrl)
+              : isDailyEnglish
+                ? normalizeExternalUrl(normalizedInputHomepageUrl) || normalizeExternalUrl(formData.feedUrl)
             : normalizeExternalUrl(normalizedInputHomepageUrl);
-        const sourceId = platform.id === "youtube" ? channelId : platform.id === "bilibili" ? bilibiliUid : `manual-${Date.now()}`;
+        const sourceId = platform.id === "youtube" ? channelId : platform.id === "bilibili" ? bilibiliUid : isDailyEnglish ? `daily-${Date.now()}` : `manual-${Date.now()}`;
         const creatorRecordId = channelId || bilibiliUid || `manual-${Date.now()}`;
-        const feedUrl = youtubeInfo?.feedUrl || "";
+        const feedUrl = isDailyEnglish ? normalizeExternalUrl(formData.feedUrl) : youtubeInfo?.feedUrl || "";
         const updateTitle = formData.title.trim();
         const updateUrl = formData.updateUrl.trim();
         const hasUpdate = platform.id !== "youtube" && platform.id !== "bilibili" && !isCustomPlatform(platform) && (updateTitle || updateUrl);
@@ -1747,7 +1928,7 @@ export default function App() {
                     selected: true,
                     homepageUrl,
                     sourceId: platform.id === "youtube" ? channelId : platform.id === "bilibili" ? bilibiliUid : creator.sourceId,
-                    feedUrl: platform.id === "youtube" ? feedUrl : creator.feedUrl,
+                    feedUrl: platform.id === "youtube" || isDailyEnglish ? feedUrl : creator.feedUrl,
                     handle: platform.id === "youtube" ? youtubeInfo.handle : creator.handle,
                     uid: platform.id === "bilibili" ? bilibiliUid : creator.uid,
                     syncFailCount: usesCreatorSyncState(platform.id) ? 0 : creator.syncFailCount,
@@ -2093,9 +2274,12 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
   const quickCreators = visibleCreators.slice(0, 5);
   const hiddenCreatorCount = creatorCount - quickCreators.length;
   const statusInfo = getHomeStatusInfo(platform, unreadCreators);
-  const supplementText = getPlatformSupplementText(platform, creatorCount);
   const shouldShowUnreadUpdates = unreadCreators.length > 0;
   const shouldShowQuickCreators = isExpanded && creatorCount > 0;
+  const supplementText =
+    platform.id === "daily_english" && creatorCount > 0 && !shouldShowUnreadUpdates
+      ? "明天再来读一篇"
+      : getPlatformSupplementText(platform, creatorCount);
 
   return (
     <article className="platform-card">
@@ -2132,6 +2316,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
               key={creator.id}
               creator={creator}
               update={creator.unreadUpdates[0]}
+              actionText={platform.id === "daily_english" ? "打开文章 →" : ""}
               onClick={(event) => {
                 event.stopPropagation();
                 onOpenUpdate({ platform, creator, update: creator.unreadUpdates[0] });
@@ -2180,7 +2365,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
   );
 }
 
-function CreatorRow({ creator, update, onClick }) {
+function CreatorRow({ creator, update, actionText = "", onClick }) {
   const Component = onClick ? "button" : "div";
 
   return (
@@ -2192,6 +2377,7 @@ function CreatorRow({ creator, update, onClick }) {
           <span>{update.time} 更新</span>
         </div>
         <p>{update.title}</p>
+        {actionText && <span className="creator-action">{actionText}</span>}
       </div>
     </Component>
   );
@@ -2232,7 +2418,7 @@ function PlatformDetail({
               <article className="detail-card" key={`${creator.id}-${update.id}`}>
                 <CreatorRow creator={creator} update={update} />
                 <button className="open-content" type="button" onClick={() => onOpenUpdate({ platform, creator, update })}>
-                  {platform.id === "youtube" ? "打开内容 →" : "进入主页 →"}
+                  {platform.id === "daily_english" ? "打开文章 →" : platform.id === "youtube" ? "打开内容 →" : "进入主页 →"}
                 </button>
               </article>
             ))
@@ -2255,7 +2441,7 @@ function PlatformDetail({
       {readUpdates.length > 0 && (
         <section className="read-area">
           <button className="read-toggle" type="button" onClick={() => setShowReadUpdates((current) => !current)}>
-            已读更新 {readUpdates.length} 条 {showReadUpdates ? "∧" : "∨"}
+            {platform.id === "daily_english" ? "已读文章" : "已读更新"} {readUpdates.length} 条 {showReadUpdates ? "∧" : "∨"}
           </button>
 
           {showReadUpdates && (
@@ -2265,7 +2451,9 @@ function PlatformDetail({
                   <div>
                     <strong>{update.creatorName}</strong>
                     <p>{update.title}</p>
-                    <button type="button" onClick={() => onOpenHomepage(platform, update)}>进入主页 →</button>
+                    <button type="button" onClick={() => onOpenHomepage(platform, update)}>
+                      {platform.id === "daily_english" ? "打开文章 →" : "进入主页 →"}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -2280,7 +2468,7 @@ function PlatformDetail({
 function FollowedCreatorsSection({ platformId, creators, onOpenCreator, onEditCreator, onRemoveCreator }) {
   return (
     <section className="followed-area">
-      <h3>已关注博主 {creators.length} 位</h3>
+      <h3>{platformId === "daily_english" ? `阅读源 ${creators.length} 个` : `已关注博主 ${creators.length} 位`}</h3>
       <div className="followed-list">
         {creators.map((creator) => (
           <div className="followed-item" key={creator.id}>
@@ -2426,12 +2614,14 @@ function AddPlatformModal({ onClose, onAdd }) {
 
 function ManualAddModal({ platform, onClose, onAdd }) {
   const isRss = platform.id === "rss";
+  const isDailyEnglish = platform.id === "daily_english";
   const isYouTube = platform.id === "youtube";
   const isBilibili = platform.id === "bilibili";
   const isCustom = isCustomPlatform(platform);
   const [form, setForm] = useState({
     platformId: platform.id,
     creator: "",
+    feedUrl: "",
     homepageUrl: "",
     title: "",
     updateUrl: "",
@@ -2455,7 +2645,12 @@ function ManualAddModal({ platform, onClose, onAdd }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if ((!isYouTube && !isBilibili && !isCustom && !form.creator.trim()) || !form.homepageUrl.trim()) {
+    if (isDailyEnglish && (!form.creator.trim() || !form.feedUrl.trim())) {
+      alert("请填写来源名称和 RSS 链接");
+      return;
+    }
+
+    if (!isDailyEnglish && ((!isYouTube && !isBilibili && !isCustom && !form.creator.trim()) || !form.homepageUrl.trim())) {
       alert(isYouTube ? "请填写 YouTube 频道链接" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
@@ -2463,6 +2658,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
     onAdd({
       platformId: form.platformId,
       creator: form.creator,
+      feedUrl: form.feedUrl,
       homepageUrl: form.homepageUrl,
       title: form.title,
       updateUrl: form.updateUrl,
@@ -2488,13 +2684,25 @@ function ManualAddModal({ platform, onClose, onAdd }) {
           />
         </label>
 
+        {isDailyEnglish && (
+          <label>
+            RSS 链接
+            <input
+              name="feedUrl"
+              value={form.feedUrl}
+              onChange={handleChange}
+              placeholder="https://..."
+            />
+          </label>
+        )}
+
         <label>
           {isYouTube ? "YouTube 频道链接" : getHomepageLabel(platform)}
           <input
             name="homepageUrl"
             value={form.homepageUrl}
             onChange={handleChange}
-            placeholder={isYouTube ? "https://www.youtube.com/@casey" : isBilibili ? "https://space.bilibili.com/123456" : "https://..."}
+            placeholder={isYouTube ? "https://www.youtube.com/@casey" : isBilibili ? "https://space.bilibili.com/123456" : isDailyEnglish ? "https://learningenglish.voanews.com/" : "https://..."}
           />
           {isYouTube && (
             <span className="field-note">
@@ -2514,7 +2722,7 @@ function ManualAddModal({ platform, onClose, onAdd }) {
           )}
         </label>
 
-        {!isRss && !isYouTube && !isBilibili && !isCustom && (
+        {!isRss && !isDailyEnglish && !isYouTube && !isBilibili && !isCustom && (
           <>
             <label>
               最新内容标题，可选
@@ -2540,9 +2748,11 @@ function ManualAddModal({ platform, onClose, onAdd }) {
 function EditCreatorModal({ platform, creator, onClose, onSave }) {
   const isYouTube = platform.id === "youtube";
   const isBilibili = platform.id === "bilibili";
+  const isDailyEnglish = platform.id === "daily_english";
   const isCustom = isCustomPlatform(platform);
   const [form, setForm] = useState({
     creator: creator.name || "",
+    feedUrl: creator.feedUrl || "",
     homepageUrl: creator.homepageUrl || ""
   });
   const nameStatus = useAutoCreatorName(platform, form, setForm);
@@ -2563,7 +2773,12 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if ((!isYouTube && !isBilibili && !isCustom && !form.creator.trim()) || !form.homepageUrl.trim()) {
+    if (isDailyEnglish && (!form.creator.trim() || !form.feedUrl.trim())) {
+      alert("请填写来源名称和 RSS 链接");
+      return;
+    }
+
+    if (!isDailyEnglish && ((!isYouTube && !isBilibili && !isCustom && !form.creator.trim()) || !form.homepageUrl.trim())) {
       alert(isYouTube ? "请填写频道名和 YouTube 频道链接" : `请填写${getCreatorLabel(platform)}和${getHomepageLabel(platform)}`);
       return;
     }
@@ -2585,10 +2800,10 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
         </label>
 
         <label>
-          {isYouTube ? "YouTube 频道链接" : getHomepageLabel(platform)}
+          {isDailyEnglish ? "RSS 链接" : isYouTube ? "YouTube 频道链接" : getHomepageLabel(platform)}
           <input
-            name="homepageUrl"
-            value={form.homepageUrl}
+            name={isDailyEnglish ? "feedUrl" : "homepageUrl"}
+            value={isDailyEnglish ? form.feedUrl : form.homepageUrl}
             onChange={handleChange}
             placeholder={isYouTube ? "https://www.youtube.com/@casey" : isBilibili ? "https://space.bilibili.com/123456" : "https://..."}
           />
@@ -2604,6 +2819,18 @@ function EditCreatorModal({ platform, creator, onClose, onSave }) {
             </span>
           )}
         </label>
+
+        {isDailyEnglish && (
+          <label>
+            主页链接，可选
+            <input
+              name="homepageUrl"
+              value={form.homepageUrl}
+              onChange={handleChange}
+              placeholder="https://learningenglish.voanews.com/"
+            />
+          </label>
+        )}
 
         <button className="submit-button" type="submit">保存修改</button>
       </form>
@@ -2778,7 +3005,7 @@ function SyncPage({
         <button className="submit-button" type="button" onClick={onSyncAll} disabled={isSyncingAll || isYouTubeSyncing}>
           {isSyncingAll ? "同步中..." : "同步全部"}
         </button>
-        <p className="sync-scope-note">目前仅 YouTube 参与同步，其他平台作为手动入口使用。</p>
+        <p className="sync-scope-note">目前同步：YouTube、每日英语。其他平台作为轻入口使用。</p>
         {globalSyncState.message && <p className="sync-message">{globalSyncState.message}</p>}
         {debugInfo && (
           <div className="sync-debug">
