@@ -2096,7 +2096,6 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
   const supplementText = getPlatformSupplementText(platform, creatorCount);
   const shouldShowUnreadUpdates = unreadCreators.length > 0;
   const shouldShowQuickCreators = isExpanded && creatorCount > 0;
-  const shouldShowLastOpened = platform.id === "instagram";
 
   return (
     <article className="platform-card">
@@ -2164,9 +2163,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
               >
                 <span className="quick-creator-main">
                   <span>{creator.name}</span>
-                  {shouldShowLastOpened && (
-                    <small>上次查看：{formatLastOpenedAt(creator.lastOpenedAt)}</small>
-                  )}
+                  <small>上次查看：{formatLastOpenedAt(creator.lastOpenedAt)}</small>
                 </span>
                 {hasHomepage ? <strong>进入主页 →</strong> : <em>暂无主页链接</em>}
               </button>
@@ -2289,9 +2286,7 @@ function FollowedCreatorsSection({ platformId, creators, onOpenCreator, onEditCr
           <div className="followed-item" key={creator.id}>
             <div>
               <strong>{creator.name}</strong>
-              {platformId === "instagram" && (
-                <p className="last-opened-text">上次查看：{formatLastOpenedAt(creator.lastOpenedAt)}</p>
-              )}
+              <p className="last-opened-text">上次查看：{formatLastOpenedAt(creator.lastOpenedAt)}</p>
               {platformId === "youtube" && (
                 <>
                   <p className="creator-debug">
