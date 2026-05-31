@@ -48,6 +48,7 @@ function createCreator(platformId, name, homepageUrl, sourceId, updates = [], ex
     homepageUrl,
     sourceId: sourceId || "",
     selected: true,
+    lastOpenedAt: "",
     updates,
     ...extra
   };
@@ -503,6 +504,23 @@ function formatSyncTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "尚未同步";
   return `${date.toLocaleDateString("zh-CN")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatLastOpenedAt(dateString) {
+  if (!dateString) return "从未查看";
+
+  const openedDate = new Date(dateString);
+  if (Number.isNaN(openedDate.getTime())) return "从未查看";
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const openedDay = new Date(openedDate.getFullYear(), openedDate.getMonth(), openedDate.getDate());
+  const diffDays = Math.floor((today.getTime() - openedDay.getTime()) / 86400000);
+
+  if (diffDays <= 0) return "今天";
+  if (diffDays === 1) return "昨天";
+  if (diffDays <= 30) return `${diffDays} 天前`;
+  return "很久没看";
 }
 
 function getAutoYouTubeSyncText(value) {
@@ -1190,6 +1208,22 @@ export default function App() {
     );
   }
 
+  function markCreatorAsOpened(platformId, creatorId) {
+    const openedAt = new Date().toISOString();
+    updatePlatforms(
+      platforms.map((platform) => {
+        if (platform.id !== platformId) return platform;
+
+        return {
+          ...platform,
+          creators: platform.creators.map((creator) =>
+            creator.id === creatorId ? { ...creator, lastOpenedAt: openedAt } : creator
+          )
+        };
+      })
+    );
+  }
+
   function openExternalLink({ platform, creator, update }) {
     const targetUrl =
       update?.url ||
@@ -1209,8 +1243,12 @@ export default function App() {
   function openCreatorHomepage(platform, update) {
     const creator = platform.creators.find((item) => item.name === update.creatorName);
     const targetUrl = creator?.homepageUrl || update?.homepageUrl || update?.url || update?.link || update?.href;
+    const xiaohongshuUrl = isXiaohongshuPlatform(platform)
+      ? normalizeExternalUrl(parseXiaohongshuShareText(targetUrl).url || targetUrl)
+      : "";
 
     if (isXiaohongshuPlatform(platform)) {
+      if (xiaohongshuUrl && creator?.id) markCreatorAsOpened(platform.id, creator.id);
       openXiaohongshuProfile(targetUrl);
       return;
     }
@@ -1222,12 +1260,16 @@ export default function App() {
       return;
     }
 
+    if (creator?.id) markCreatorAsOpened(platform.id, creator.id);
     openExternalSafely(finalUrl, { platformName: platform?.name });
   }
 
   function openFollowedCreatorHomepage(platform, creator) {
     const targetUrl = creator?.homepageUrl;
     const finalUrl = normalizeExternalUrl(targetUrl);
+    const xiaohongshuUrl = isXiaohongshuPlatform(platform)
+      ? normalizeExternalUrl(parseXiaohongshuShareText(targetUrl).url || targetUrl)
+      : "";
 
     if (import.meta.env.DEV) {
       console.log("follow external homepage", {
@@ -1239,6 +1281,7 @@ export default function App() {
     }
 
     if (isXiaohongshuPlatform(platform)) {
+      if (xiaohongshuUrl) markCreatorAsOpened(platform.id, creator.id);
       openXiaohongshuProfile(targetUrl);
       return;
     }
@@ -1248,6 +1291,7 @@ export default function App() {
       return;
     }
 
+    markCreatorAsOpened(platform.id, creator.id);
     openExternalSafely(finalUrl, { platformName: platform?.name });
   }
 
@@ -2052,6 +2096,7 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
   const supplementText = getPlatformSupplementText(platform, creatorCount);
   const shouldShowUnreadUpdates = unreadCreators.length > 0;
   const shouldShowQuickCreators = isExpanded && creatorCount > 0;
+  const shouldShowLastOpened = platform.id === "instagram";
 
   return (
     <article className="platform-card">
@@ -2117,7 +2162,12 @@ function PlatformCard({ platform, onConnect, onOpenUpdate, onOpenCreator, onView
                 }}
                 disabled={!hasHomepage}
               >
-                <span>{creator.name}</span>
+                <span className="quick-creator-main">
+                  <span>{creator.name}</span>
+                  {shouldShowLastOpened && (
+                    <small>上次查看：{formatLastOpenedAt(creator.lastOpenedAt)}</small>
+                  )}
+                </span>
                 {hasHomepage ? <strong>进入主页 →</strong> : <em>暂无主页链接</em>}
               </button>
             );
@@ -2239,6 +2289,9 @@ function FollowedCreatorsSection({ platformId, creators, onOpenCreator, onEditCr
           <div className="followed-item" key={creator.id}>
             <div>
               <strong>{creator.name}</strong>
+              {platformId === "instagram" && (
+                <p className="last-opened-text">上次查看：{formatLastOpenedAt(creator.lastOpenedAt)}</p>
+              )}
               {platformId === "youtube" && (
                 <>
                   <p className="creator-debug">

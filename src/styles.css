@@ -486,7 +486,13 @@ button:focus-visible {
   border-bottom: 0;
 }
 
-.quick-creator-row span {
+.quick-creator-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.quick-creator-main span {
   min-width: 0;
   overflow: hidden;
   color: #333333;
@@ -494,6 +500,15 @@ button:focus-visible {
   font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.quick-creator-main small,
+.last-opened-text {
+  margin: 0;
+  color: var(--gray);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
 }
 
 .quick-creator-row strong,
