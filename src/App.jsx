@@ -9,6 +9,48 @@ const DAILY_ENGLISH_SOURCE_ID = "bbc_6_minute_english";
 const DAILY_ENGLISH_SOURCE_NAME = "BBC 6 Minute English";
 const DAILY_ENGLISH_FEED_URL = "https://podcasts.files.bbci.co.uk/p02pc9tn.rss";
 const DAILY_ENGLISH_HOME_URL = "https://www.bbc.co.uk/learningenglish/english/features/6-minute-english";
+const DAILY_ENGLISH_LEARNING_SOURCES = [
+  {
+    sourceName: "BBC Learning English",
+    title: "6 Minute English: learn with a short conversation",
+    summary: "短对话加关键词，适合每天用 6 分钟保持英语输入。",
+    url: DAILY_ENGLISH_HOME_URL,
+    difficulty: "进阶",
+    readTime: "6分钟",
+    updatedAt: "长期更新",
+    type: "learning"
+  },
+  {
+    sourceName: "VOA Learning English",
+    title: "Learning English stories in simpler language",
+    summary: "慢速英语和清晰表达，适合作为轻量阅读补充。",
+    url: "https://learningenglish.voanews.com/",
+    difficulty: "入门",
+    readTime: "5分钟",
+    updatedAt: "长期更新",
+    type: "learning"
+  },
+  {
+    sourceName: "Breaking News English",
+    title: "Graded English lessons with short readings",
+    summary: "同一主题有不同难度版本，适合按水平选择阅读。",
+    url: "https://breakingnewsenglish.com/",
+    difficulty: "挑战",
+    readTime: "8分钟",
+    updatedAt: "长期更新",
+    type: "learning"
+  },
+  {
+    sourceName: "English in Levels",
+    title: "News and stories rewritten by level",
+    summary: "按 Level 阅读短文，适合循序渐进积累词汇。",
+    url: "https://www.englishinlevels.com/",
+    difficulty: "入门",
+    readTime: "5分钟",
+    updatedAt: "长期更新",
+    type: "learning"
+  }
+];
 const DEFAULT_PLATFORM_ORDER = ["youtube", "daily_english", "instagram", "bilibili", "xiaohongshu", "weibo", "rss"];
 const LEGACY_DEFAULT_PLATFORM_ORDER = ["youtube", "bilibili", "xiaohongshu", "weibo", "instagram", "rss"];
 const DEFAULT_PLATFORM_VISIBILITY = {
@@ -927,6 +969,51 @@ function getReadUpdates(platform) {
       .filter((update) => update.read)
       .map((update) => ({ ...update, creatorName: creator.name }))
   );
+}
+
+function getLatestCreatorUpdate(creator) {
+  return sortUpdatesByRecency(Array.isArray(creator.updates) ? creator.updates : [])[0] || null;
+}
+
+function getDailyEnglishTodayArticle(platform, unreadCreators) {
+  const unreadCreator = unreadCreators[0];
+  const unreadUpdate = unreadCreator?.unreadUpdates?.[0];
+
+  if (unreadCreator && unreadUpdate) {
+    return {
+      sourceName: unreadCreator.name,
+      title: unreadUpdate.title,
+      summary: unreadUpdate.summary || "今天就读这一篇，不用再筛选。",
+      url: unreadUpdate.url,
+      difficulty: unreadUpdate.difficulty || "进阶",
+      readTime: unreadUpdate.readTime || "6分钟",
+      updatedAt: unreadUpdate.publishedAt ? formatSyncTime(unreadUpdate.publishedAt) : unreadUpdate.time || "今日推荐",
+      type: "learning",
+      creator: unreadCreator,
+      update: unreadUpdate
+    };
+  }
+
+  return DAILY_ENGLISH_LEARNING_SOURCES[0];
+}
+
+function getDailyEnglishLearningSources(platform) {
+  return DAILY_ENGLISH_LEARNING_SOURCES.map((source) => {
+    const matchedCreator = platform.creators.find((creator) =>
+      [creator.name, creator.sourceId, creator.id].some((value) =>
+        String(value || "").toLowerCase().includes(source.sourceName.toLowerCase().split(" ")[0])
+      )
+    );
+    const latestUpdate = matchedCreator ? getLatestCreatorUpdate(matchedCreator) : null;
+
+    return {
+      ...source,
+      title: latestUpdate?.title || source.title,
+      summary: latestUpdate?.summary || source.summary,
+      url: latestUpdate?.url || matchedCreator?.homepageUrl || source.url,
+      updatedAt: latestUpdate?.publishedAt ? formatSyncTime(latestUpdate.publishedAt) : latestUpdate?.time || source.updatedAt
+    };
+  });
 }
 
 function getStatusText(platform, unreadCreators) {
@@ -2406,6 +2493,85 @@ function CreatorRow({ creator, update, actionText = "", onClick }) {
   );
 }
 
+function DailyEnglishTodayCard({ article, onStart }) {
+  return (
+    <section className="daily-today-card">
+      <div className="daily-section-kicker">
+        <span>今日一篇</span>
+        <em>每天一篇，读完就走</em>
+      </div>
+      <h3>{article.title}</h3>
+      <p className="daily-source-line">{article.sourceName}</p>
+      <div className="daily-meta-row">
+        <span>{article.difficulty}</span>
+        <span>{article.readTime}</span>
+      </div>
+      <p className="daily-summary">{article.summary}</p>
+      <button className="open-content" type="button" onClick={onStart}>开始阅读</button>
+    </section>
+  );
+}
+
+function DailyEnglishSources({ sources }) {
+  return (
+    <section className="daily-sources-area">
+      <div className="daily-section-kicker">
+        <span>学习型来源</span>
+        <em>备用入口，不用刷</em>
+      </div>
+      <div className="daily-source-list">
+        {sources.map((source) => (
+          <article
+            className="daily-source-card"
+            key={source.sourceName}
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              openExternalSafely(source.url, {
+                platformName: source.sourceName,
+                invalidMessage: "文章链接暂时无法打开"
+              });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openExternalSafely(source.url, {
+                  platformName: source.sourceName,
+                  invalidMessage: "文章链接暂时无法打开"
+                });
+              }
+            }}
+          >
+            <div>
+              <h4>{source.sourceName}</h4>
+              <span>{source.updatedAt}</span>
+            </div>
+            <strong>{source.title}</strong>
+            <p>{source.summary}</p>
+            <div className="daily-meta-row">
+              <span>{source.difficulty}</span>
+              <span>{source.readTime}</span>
+            </div>
+            <button
+              className="daily-link-button"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openExternalSafely(source.url, {
+                  platformName: source.sourceName,
+                  invalidMessage: "文章链接暂时无法打开"
+                });
+              }}
+            >
+              打开原文 →
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function PlatformDetail({
   platform,
   onBack,
@@ -2421,6 +2587,75 @@ function PlatformDetail({
   const readUpdates = getReadUpdates(platform);
   const followedCreators = platform.creators.filter((creator) => creator.selected !== false);
   const statusText = getStatusText(platform, unreadCreators);
+  const isDailyEnglish = platform.id === "daily_english";
+
+  if (isDailyEnglish) {
+    const todayArticle = getDailyEnglishTodayArticle(platform, unreadCreators);
+    const learningSources = getDailyEnglishLearningSources(platform);
+
+    return (
+      <section className="detail-page">
+        <div className="detail-head">
+          <button className="back-link" type="button" onClick={onBack}>← 返回首页</button>
+          <button className="detail-add-button" type="button" onClick={onManualAdd} aria-label={`添加${platform.name}`}>＋</button>
+        </div>
+
+        <div className="detail-title">
+          <span className="blue-oval large">{platform.name}</span>
+          <p>{statusText}</p>
+        </div>
+
+        <DailyEnglishTodayCard
+          article={todayArticle}
+          onStart={() => {
+            if (todayArticle.creator && todayArticle.update) {
+              onOpenUpdate({ platform, creator: todayArticle.creator, update: todayArticle.update });
+              return;
+            }
+
+            openExternalSafely(todayArticle.url, {
+              platformName: "每日英语",
+              invalidMessage: "文章链接暂时无法打开"
+            });
+          }}
+        />
+
+        <DailyEnglishSources sources={learningSources} />
+
+        {platform.creators.length > 0 && (
+          <FollowedCreatorsSection
+            platformId={platform.id}
+            creators={followedCreators}
+            onOpenCreator={(creator) => onOpenFollowedCreator(platform, creator)}
+            onEditCreator={onEditCreator}
+            onRemoveCreator={(creator) => onRemoveCreator(platform.id, creator)}
+          />
+        )}
+
+        {readUpdates.length > 0 && (
+          <section className="read-area">
+            <button className="read-toggle" type="button" onClick={() => setShowReadUpdates((current) => !current)}>
+              已读内容 {readUpdates.length} 条 {showReadUpdates ? "∧" : "∨"}
+            </button>
+
+            {showReadUpdates && (
+              <div className="read-list">
+                {readUpdates.map((update) => (
+                  <div className="read-item" key={`${update.creatorName}-${update.id}`}>
+                    <div>
+                      <strong>{update.creatorName}</strong>
+                      <p>{update.title}</p>
+                      <button type="button" onClick={() => onOpenHomepage(platform, update)}>打开内容 →</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="detail-page">

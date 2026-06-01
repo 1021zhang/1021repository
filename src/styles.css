@@ -197,7 +197,9 @@ button:focus-visible {
 .detail-card,
 .simple-page,
 .settings-card,
-.empty-state {
+.empty-state,
+.daily-today-card,
+.daily-source-card {
   width: 100%;
   border-radius: 28px;
   background: #ffffff;
@@ -568,8 +570,145 @@ button:focus-visible {
 .detail-card,
 .simple-page,
 .settings-card,
-.empty-state {
+.empty-state,
+.daily-today-card,
+.daily-source-card {
   padding: 18px;
+}
+
+.daily-today-card {
+  margin-bottom: 18px;
+  border-color: rgba(35, 136, 232, 0.14);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.daily-section-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.daily-section-kicker span {
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+}
+
+.daily-section-kicker em {
+  color: var(--gray);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.daily-today-card h3 {
+  margin: 0 0 8px;
+  font-size: 21px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.daily-source-line,
+.daily-summary,
+.daily-source-card p {
+  color: #5f6670;
+  line-height: 1.45;
+}
+
+.daily-source-line {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.daily-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.daily-meta-row span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.daily-summary {
+  margin: 12px 0 0;
+  font-size: 14px;
+}
+
+.daily-sources-area {
+  margin-top: 22px;
+}
+
+.daily-source-list {
+  display: grid;
+  gap: 12px;
+}
+
+.daily-source-card {
+  border-radius: 22px;
+  box-shadow: 0 12px 32px rgba(20, 80, 140, 0.045);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.daily-source-card:active {
+  opacity: 0.72;
+}
+
+.daily-source-card > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.daily-source-card h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.daily-source-card > div:first-child span {
+  color: var(--gray);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.daily-source-card strong {
+  display: block;
+  color: #262626;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.daily-source-card p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.daily-link-button {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 950;
 }
 
 .open-content,
