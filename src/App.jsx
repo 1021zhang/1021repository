@@ -374,7 +374,7 @@ function normalizeExternalUrl(url) {
   const trimmedUrl = String(url).trim();
   const lowerUrl = trimmedUrl.toLowerCase();
   const commonBareDomainPattern =
-    /^(?:www\.[^/\s?#]+|youtube\.com|youtu\.be|bilibili\.com|space\.bilibili\.com|instagram\.com|xiaohongshu\.com|www\.xiaohongshu\.com|xhslink\.com|weibo\.com|m\.weibo\.cn|rsshub\.app)(?:[/?#]|$)/i;
+    /^(?:www\.[^/\s?#]+|youtube\.com|youtu\.be|bilibili\.com|space\.bilibili\.com|instagram\.com|xiaohongshu\.com|www\.xiaohongshu\.com|xhslink\.com|weibo\.com|m\.weibo\.cn|rsshub\.app|theguardian\.com|bbc\.co\.uk|breakingnewsenglish\.com|englishinlevels\.com)(?:[/?#]|$)/i;
 
   if (
     trimmedUrl === "" ||
@@ -408,6 +408,62 @@ function normalizeExternalUrl(url) {
   } catch {
     return "";
   }
+}
+
+function isRssFeedUrl(url) {
+  const normalizedUrl = normalizeExternalUrl(url);
+  if (!normalizedUrl) return false;
+
+  try {
+    const parsedUrl = new URL(normalizedUrl);
+    const pathname = parsedUrl.pathname.toLowerCase();
+    const fullUrl = normalizedUrl.toLowerCase();
+    const formatValue = String(parsedUrl.searchParams.get("format") || "").toLowerCase();
+    const outputValue = String(parsedUrl.searchParams.get("output") || "").toLowerCase();
+
+    return (
+      pathname.endsWith("/rss") ||
+      pathname.endsWith(".rss") ||
+      pathname.endsWith(".xml") ||
+      pathname.includes("/rss/") ||
+      pathname.includes("/feed") ||
+      fullUrl.includes("/rss") ||
+      fullUrl.includes("feedburner") ||
+      formatValue === "rss" ||
+      outputValue === "rss"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function resolveSafeOpenUrl(primaryUrl, options = {}) {
+  const candidateUrls = [
+    primaryUrl,
+    options.articleUrl,
+    options.latestArticleUrl,
+    options.item?.link,
+    options.item?.url,
+    options.sourceUrl,
+    options.homepageUrl
+  ];
+
+  const primaryNormalizedUrl = normalizeExternalUrl(primaryUrl);
+
+  for (const candidateUrl of candidateUrls) {
+    const normalizedCandidateUrl = normalizeExternalUrl(candidateUrl);
+    if (normalizedCandidateUrl && !isRssFeedUrl(normalizedCandidateUrl)) return normalizedCandidateUrl;
+  }
+
+  if (primaryNormalizedUrl && isRssFeedUrl(primaryNormalizedUrl)) {
+    console.warn("Blocked opening RSS feed URL", {
+      rssUrl: primaryNormalizedUrl,
+      sourceUrl: options.sourceUrl || options.homepageUrl || "",
+      articleUrl: options.articleUrl || options.latestArticleUrl || options.item?.link || options.item?.url || ""
+    });
+  }
+
+  return "";
 }
 
 function normalizeBilibiliHomepage(input) {
@@ -473,7 +529,7 @@ function showExternalToast(message) {
 }
 
 function openExternalSafely(url, options = {}) {
-  const finalUrl = normalizeExternalUrl(url);
+  const finalUrl = resolveSafeOpenUrl(url, options);
   if (!finalUrl) {
     showExternalToast(options.invalidMessage || "链接无效，无法打开");
     return false;
@@ -1380,7 +1436,10 @@ export default function App() {
 
     const opened = openExternalSafely(targetUrl, {
       platformName: platform?.name,
-      invalidMessage: platform?.id === "daily_english" ? "文章链接暂时无法打开" : undefined
+      invalidMessage: platform?.id === "daily_english" ? "文章链接暂时无法打开" : undefined,
+      articleUrl: update?.articleUrl || update?.latestArticleUrl || update?.url || update?.link || update?.contentUrl || update?.videoUrl || update?.href,
+      sourceUrl: creator?.homepageUrl || platform?.homepageUrl,
+      item: update
     });
     if (opened && update?.id && creator?.id && platform?.id) {
       markUpdateAsRead(platform.id, creator.id, update.id);
@@ -1902,7 +1961,10 @@ export default function App() {
           const existingKeys = new Set(
             creator.updates.flatMap((update) => [update.id, normalizeExternalUrl(update.url)]).filter(Boolean)
           );
-          const normalizedLatestUrl = normalizeExternalUrl(latestItem.url);
+          const normalizedLatestUrl = resolveSafeOpenUrl(latestItem.url, {
+            articleUrl: latestItem.url,
+            sourceUrl: creator.homepageUrl
+          });
           const latestExists = existingKeys.has(latestItem.id) || existingKeys.has(normalizedLatestUrl);
 
           if (latestExists) {
@@ -1919,7 +1981,7 @@ export default function App() {
             latestItem.id || `daily-english-${Date.now()}`,
             formatVideoTime(latestItem.publishedAt),
             latestItem.title || "今日英语文章",
-            latestItem.url,
+            normalizedLatestUrl,
             false,
             {
               source: "daily_english",
@@ -2079,13 +2141,17 @@ export default function App() {
 
         const sourceName = formData.creator.trim();
         const homepageUrl = normalizeExternalUrl(formData.homepageUrl);
-        const update = createUpdate(`rss-update-${Date.now()}`, getCurrentTime(), `${sourceName} 最新文章`, homepageUrl);
+        const updateUrl = isRssFeedUrl(homepageUrl) ? "" : homepageUrl;
+        const update = createUpdate(`rss-update-${Date.now()}`, getCurrentTime(), `${sourceName} 最新文章`, updateUrl);
 
         return {
           ...platform,
           connected: true,
           creators: [
-            createCreator("rss", sourceName, homepageUrl, `rss-${Date.now()}`, [update]),
+            createCreator("rss", sourceName, updateUrl, `rss-${Date.now()}`, [update], {
+              rssUrl: homepageUrl,
+              feedUrl: homepageUrl
+            }),
             ...platform.creators
           ]
         };
@@ -2529,7 +2595,9 @@ function DailyEnglishSources({ sources }) {
             onClick={() => {
               openExternalSafely(source.url, {
                 platformName: source.sourceName,
-                invalidMessage: "文章链接暂时无法打开"
+                invalidMessage: "文章链接暂时无法打开",
+                articleUrl: source.articleUrl || source.latestArticleUrl,
+                sourceUrl: source.sourceUrl || source.url
               });
             }}
             onKeyDown={(event) => {
@@ -2537,7 +2605,9 @@ function DailyEnglishSources({ sources }) {
                 event.preventDefault();
                 openExternalSafely(source.url, {
                   platformName: source.sourceName,
-                  invalidMessage: "文章链接暂时无法打开"
+                  invalidMessage: "文章链接暂时无法打开",
+                  articleUrl: source.articleUrl || source.latestArticleUrl,
+                  sourceUrl: source.sourceUrl || source.url
                 });
               }
             }}
@@ -2559,7 +2629,9 @@ function DailyEnglishSources({ sources }) {
                 event.stopPropagation();
                 openExternalSafely(source.url, {
                   platformName: source.sourceName,
-                  invalidMessage: "文章链接暂时无法打开"
+                  invalidMessage: "文章链接暂时无法打开",
+                  articleUrl: source.articleUrl || source.latestArticleUrl,
+                  sourceUrl: source.sourceUrl || source.url
                 });
               }}
             >
@@ -2615,7 +2687,9 @@ function PlatformDetail({
 
             openExternalSafely(todayArticle.url, {
               platformName: "每日英语",
-              invalidMessage: "文章链接暂时无法打开"
+              invalidMessage: "文章链接暂时无法打开",
+              articleUrl: todayArticle.articleUrl || todayArticle.latestArticleUrl,
+              sourceUrl: todayArticle.sourceUrl || todayArticle.url
             });
           }}
         />
@@ -3280,10 +3354,12 @@ function SyncPage({
                     className="feed-test-button"
                     type="button"
                     onClick={() => {
-                      openExternalSafely(debugInfo.feedUrl);
+                      console.warn("RSS/feed test URL is diagnostic only and will not be opened as user content.", {
+                        feedUrl: debugInfo.feedUrl
+                      });
                     }}
                   >
-                    打开 feed 测试 →
+                    feed 仅用于同步
                   </button>
                 )}
               </>
